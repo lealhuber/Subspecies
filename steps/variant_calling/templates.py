@@ -9,7 +9,7 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, temp_path: str, output
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '64g',
+    'memory': '100g',
     'walltime': '3-00:00:00'
     }
     spec="""
