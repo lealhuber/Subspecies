@@ -1,0 +1,15 @@
+# Ignore these directories:
+alignment/
+data/
+data_re/
+metadata/
+__pycache__/
+.gwf/
+outputs/
+logs/
+temp/
+vcf_outputs/
+
+
+# Ignore temporary files:
+*.tmp
