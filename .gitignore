@@ -9,6 +9,8 @@ outputs/
 logs/
 temp/
 vcf_outputs/
+QC/
+multiqc_data/
 
 
 # Ignore temporary files:
