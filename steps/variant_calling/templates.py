@@ -62,6 +62,7 @@ def zip_file(file: str, species_name: str):
     output_file = '{path}/sorted_{name}.vcf.gz'.format(path=os.path.dirname(file), name=species_name)
     inputs={'genome_vcf': file}
     outputs={'vcf_gz': output_file}
+    protect={'genome_vcf': output_file}
     options={
     'cores': 8,
     'memory': '64g',
@@ -72,7 +73,7 @@ def zip_file(file: str, species_name: str):
     bcftools index {output}
     bcftools stats {output} > {name}.states
     """.format(VCF=file, output=output_file, name=species_name)
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
 # States on genome_vcf, individual stats 
 def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
@@ -81,6 +82,7 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
         path=stats_path, sample=sample)
     inputs={'vcf_gz': file}
     outputs={'vcf_pop_stats': this_stat}
+    protect={'vcf_pop_stats': this_stat}
     options={
     'cores': 1,
     'memory': '16g',
@@ -98,7 +100,7 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
     rm {path}{sample}.vcf
     rm {path}{sample}.vcf.gz
     """.format(VCF=file, path=stats_path, sample=sample, out=output_file)
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
 # Multiqc genome_stats, individual stats 
 def multiqc_vcf_stats(files: str, species_name: str, result_path: str):
@@ -106,6 +108,7 @@ def multiqc_vcf_stats(files: str, species_name: str, result_path: str):
     output_file = '{path}/{name}.html'.format(path=result_path, name=species_name)
     inputs={'vcf_pop_stats': files}
     outputs={'multiqc': output_file}
+    protect={'multiqc': output_file}
     options={
     'cores': 1,
     'memory': '8g'
@@ -115,4 +118,4 @@ def multiqc_vcf_stats(files: str, species_name: str, result_path: str):
     multiqc . 
     mv multiqc_report.html {output}
     """.format(path=os.path.dirname(files[-1]), output=output_file)
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
