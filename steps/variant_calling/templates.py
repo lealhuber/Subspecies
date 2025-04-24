@@ -62,7 +62,7 @@ def zip_file(file: str, species_name: str):
     output_file = '{path}/sorted_{name}.vcf.gz'.format(path=os.path.dirname(file), name=species_name)
     inputs={'genome_vcf': file}
     outputs={'vcf_gz': output_file}
-    protect={'genome_vcf': output_file}
+    protect=outputs['vcf_gz']
     options={
     'cores': 8,
     'memory': '64g',
@@ -82,7 +82,7 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
         path=stats_path, sample=sample)
     inputs={'vcf_gz': file}
     outputs={'vcf_pop_stats': this_stat}
-    protect={'vcf_pop_stats': this_stat}
+    protect=outputs['vcf_pop_stats']
     options={
     'cores': 1,
     'memory': '16g',
@@ -108,7 +108,7 @@ def multiqc_vcf_stats(files: str, species_name: str, result_path: str):
     output_file = '{path}/{name}.html'.format(path=result_path, name=species_name)
     inputs={'vcf_pop_stats': files}
     outputs={'multiqc': output_file}
-    protect={'multiqc': output_file}
+    protect=outputs['multiqc']
     options={
     'cores': 1,
     'memory': '8g'
