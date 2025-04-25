@@ -12,7 +12,7 @@ gwf = Workflow(defaults={'account': 'ostrich_thermal'})
 
 #Change pr spp.
 #Species (spp) information
-subsp = 'red'
+subsp = 'Sc_all'
 
 ###########################################
 #Reference genome REPLACE PR SPP !!!!! 
@@ -21,7 +21,7 @@ subsp = 'red'
 reference_genome='/faststorage/project/ostrich_thermal/BACKUP/ostrich_reference/Struthio_camelus_HiC/bwa_indexed/Struthio_camelus_HiC.fasta'
 
 #The path to where the folder containing .bam files (files can be in subfolders)
-bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/mapping/outputs/{subsp}'
+bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/mapping/outputs/'
 
 #Folders for pipeline outputs. If they do not exsist, they will be created.  
 
@@ -32,9 +32,9 @@ temps =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/varia
 out_folder =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/logs/'
 
 #RESULTS folder, where should the population VCF be outputtet 
-results =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/vcf_outputs/'
+results =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/outputs/'
 
-#path to where the states should be
+#path to where the stats should be
 stats_path=f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/stats'
 
 
@@ -85,9 +85,20 @@ for root, dirs, files in os.walk(bam_path):
     # Check each file in the current directory
     for file in files:
         # Check if the file ends with *.bam
-        if file.endswith('filtered.bam'):
-            # Append the absolute path of the file to the list
-            bam_list.append(os.path.join(root, file))
+        if file.endswith(('filtered.bam', 'filtered.bam.bai')):
+            # I want the samples to have the subspecies name in front so they will be easier later to distinguish, so I rename them here
+            # Get the parent directory name (black, blue, red)
+            parent_dir = os.path.basename(root)
+            # Check if the file already starts with the parent directory name to avoid double-prefixing
+            if not file.startswith(parent_dir + "_"):
+                new_name = f"{parent_dir}_{file}"
+                old_path = os.path.join(root, file)
+                new_path = os.path.join(root, new_name)
+                os.rename(old_path, new_path)
+                file = new_name  # Update the file variable so the renamed path is appended
+            if file.endswith('filtered.bam'):
+                # Append the absolute path of the file to the list, but only of the bam file
+                bam_list.append(os.path.join(root, file))
 
 
 # # Sort the bam list by the ID
@@ -98,6 +109,7 @@ path_bam_list = os.path.join(out_folder, '{}_bam.list'.format(subsp))
 
 bam_files=sorted_bam_list
 
+# print(f'bam list: ,{bam_files}') # to check if all there
 
 ####   #writing the above bam list to a file - deletes any previously deleted file
 ####   OBS If parts needs to be run again (e.g last two jobs) ! this needs to be masked out 
@@ -120,6 +132,7 @@ bam_files=sorted_bam_list
 
 # getting samle names. 
 samples = [path.split('/')[-1].split('.')[0] for path in sorted_bam_list] # this will break easily but for now it should work
+# print(f'Sample names: , {samples}')
 
 
 # Example BAM file path
