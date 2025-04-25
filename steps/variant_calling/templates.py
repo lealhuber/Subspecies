@@ -9,8 +9,8 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, temp_path: str, output
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '100g',
-    'walltime': '3-00:00:00'
+    'memory': '140g',
+    'walltime': '4-00:00:00'
     }
     spec="""
     freebayes \
@@ -71,11 +71,11 @@ def zip_file(file: str, species_name: str):
     spec="""
     bcftools view -Oz -o {output} {VCF}
     bcftools index {output}
-    bcftools stats {output} > {name}.states
+    bcftools stats {output} > {name}.stats
     """.format(VCF=file, output=output_file, name=species_name)
     return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
-# States on genome_vcf, individual stats 
+# Stats on genome_vcf, individual stats 
 def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
     """Statistics on genome_vcf.gz, individual stats"""
     output_file = '{path}/{sample}.stats'.format( \
@@ -89,7 +89,7 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
     'walltime': '10:00:00'
     }
     spec="""
-    #in order to summarrize the individuals states with multiqc - the vcf needs to be "different" 
+    #in order to summarrize the individuals stats with multiqc - the vcf needs to be "different" 
 
     #stats pr. sample
     bcftools view -s {sample} {VCF} > {path}{sample}.vcf
