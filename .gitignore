@@ -13,5 +13,6 @@ QC/
 multiqc_data/
 
 
-# Ignore temporary files:
+# Ignore these file types:
 *.tmp
+*.html
