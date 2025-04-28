@@ -11,8 +11,10 @@ temp/
 vcf_outputs/
 QC/
 multiqc_data/
+obsolete/
 
 
 # Ignore these file types:
 *.tmp
 *.html
+*.bed
