@@ -2,6 +2,30 @@
 from gwf import AnonymousTarget # type: ignore
 import os
 
+def add_RG(input_bam, sample_name):
+    """add read groups because I forgot them like an ass. Also requires reindexing"""
+    inputs={'bam_files': input_bam}
+    outputs={'RG_bams': input_bam,
+             'RG_bais': f'{input_bam}.bai'}
+    options={
+    'cores': 4,
+    'memory': '32g',
+    'walltime': '04:00:00'
+    }
+    spec=f'''
+    samtools addreplacerg \\
+        --threads {options['cores']} \\
+        -r ID:{sample_name} \\
+        -r SM:{sample_name} \\
+        {input_bam} \\
+        | samtools sort \\
+            --threads {options['cores']} \\
+            -o {input_bam} -
+
+        samtools index {input_bam}
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
 #CALL chr vcfs 
 def freebayes_CHR_vcf(files: list, reference_genome: str, temp_path: str, output_name: str, chromosome: str):
     """Calling all specified indiviudals to CHR vcfs"""

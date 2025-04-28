@@ -21,7 +21,7 @@ subsp = 'Sc_all'
 reference_genome='/faststorage/project/ostrich_thermal/BACKUP/ostrich_reference/Struthio_camelus_HiC/bwa_indexed/Struthio_camelus_HiC.fasta'
 
 #The path to where the folder containing .bam files (files can be in subfolders)
-bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/mapping/outputs/'
+bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/addRG/outputs/'
 
 #Folders for pipeline outputs. If they do not exsist, they will be created.  
 
