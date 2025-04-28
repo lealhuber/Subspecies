@@ -95,6 +95,7 @@ def mapping_pairdend(input_fasta_pair1,input_fasta_pair2,sample_name,ref_genome,
 
     bwa mem \\
         -t {options['cores']} \\
+        -R "@RG\\tID:{sample_name}\\tSM:{sample_name}" \\
         {ref_genome} {input_fasta_pair1} {input_fasta_pair2} \\
     | samtools sort \\
         --threads {options['cores']} \\
