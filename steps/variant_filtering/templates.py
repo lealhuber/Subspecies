@@ -42,6 +42,42 @@ def quality_filter(vcf_file, prefix, out_dir, min_site_DP, max_site_DP, min_SNP_
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
+def bias_filter(vcf_file, prefix, out_dir, min_qual, avgDP, qual_div_avgDP):
+    """ Template for filtering out sites with mapping quality bias, position bias and strand bias using bcftools
+    (suggestions by htslib.org)"""
+    inputs = {'file': vcf_file}
+    outputs = {'filtered_file': f'{out_dir}/{prefix}.nobias.vcf.gz'}
+    options={
+        'cores': 1,
+        'memory': '32g',
+        'walltime': '10:00:00'
+    }
+    spec = f'''
+    bcftools view -e "QUAL < {min_qual} || DP>2*{avgDP} || MQBZ < -(3.5+4*{qual_div_avgDP}) || \\
+        RPBZ > (3+3*{qual_div_avgDP}) || RPBZ < -(3+3*{qual_div_avgDP}) || FORMAT/SP > (40+{avgDP}/2)" \\
+        -o {out_dir}/{prefix}.nobias.vcf.gz
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+def HWE_filter(vcf_file, prefix, out_dir, stat_dir):
+    """ Template for removing sites that deviate from HWE. DO ONLY WITHIN POPULATIONS!!"""
+    inputs = {'file': vcf_file}
+    outputs = {'filtered_file': f'{out_dir}/{prefix}.HWE.vcf.gz'}
+    options={
+        'cores': 1,
+        'memory': '32g',
+        'walltime': '10:00:00'
+    }
+    spec = f'''
+    vcftools --gzvcf {vcf_file} --hwe 0.05 \\
+    --recode --recode-INFO-all --stdout | bgzip -c > ${out_dir}/{prefix}.HWE.vcf.gz
+
+    bcftools view -H {out_dir}/{prefix}.HWE.vcf.gz | wc -l \\
+    > {stat_dir}/{prefix}.hwe.allCounts
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+
 def vcf_stats(vcf_file, prefix, out_dir):
     """ Template for vcf stats"""
     inputs = {'file': vcf_file}
