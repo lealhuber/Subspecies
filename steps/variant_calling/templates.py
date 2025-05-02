@@ -25,15 +25,91 @@ def add_RG(input_bam, sample_name):
         samtools index {input_bam}
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+def parse_fasta(fastaFile: str):
+	"""
+	Parses :format:`FASTA` file of reference genome returning all sequence names and lengths paired in a list of dictionaries.
+	
+	::
+	
+		return [{'sequence_name': str, 'sequence_length': int}, ...]
+	
+	:param str fastaFile:
+		Sequence file in :format:`FASTA` format.
+	"""
+	fastaList = []
+	seqName = None
+	length = 0
+	with open(fastaFile, 'r') as fasta:
+		for entry in fasta:
+			entry = entry.strip()
+			if entry.startswith(">"):
+				if seqName:
+					fastaList.append({'sequence_name': seqName, 'sequence_length': length})
+					length = 0
+				entry = entry.split(" ", 1)
+				seqName = entry[0][1:]
+			else:
+				length += len(entry)
+		fastaList.append({'sequence_name': seqName, 'sequence_length': length})
+	return fastaList
+
+def padding_calculator(parseFasta: list, size: int  | None = 500000):
+	"""
+	Calculates proper 0 padding for numbers in **partition_chrom**.
+
+	:param list parseFasta:
+		List of dictionaries produced by **parse_fasta**.
+	:param int size:
+		Size of partitions. Default 500kb.
+	"""
+	num = 1
+	for chrom in parseFasta:
+		wholeChunks = chrom['sequence_length'] // size
+		num += (wholeChunks + 1)
+	return len(str(num))
+
+def partition_chrom(parseFasta: list, size: int = 500000, nPad: int = 5):
+	"""
+	Partitions :format:`FASTA` file parsed with **parse_fasta**.
+	
+	Uses the list of dictionaries from **parse_fasta** to creates a list of dictionaries
+	containing partition number, sequence name, start and end postion (0 based).
+	By default the partition size is 500kbs.
+	
+	::
+	
+		return [{'num': int, 'region': str, 'start': int, 'end': int}, ...]
+	
+	:param list parseFasta:
+		List of dictionaries produced by **parse_fasta**.
+	:param int size:
+		Size of partitions. Default 500kb.
+	"""
+	chromPartition = []
+	num = 1
+	for chrom in parseFasta:
+		wholeChunks = chrom['sequence_length'] // size
+		partialChunk = chrom['sequence_length'] - wholeChunks * size
+		start = 0
+		for chunk in range(wholeChunks):
+			end = start + size
+			chromPartition.append({'num': f'{num:0{nPad}}', 'region': chrom['sequence_name'], 'start': start, 'end': end})
+			start = end
+			num += 1
+		if partialChunk:
+			chromPartition.append({'num': f'{num:0{nPad}}', 'region': chrom['sequence_name'], 'start': start, 'end': start + partialChunk})
+			num += 1
+	return chromPartition
+
 
 #CALL chr vcfs 
-def freebayes_CHR_vcf(files: list, reference_genome: str, temp_path: str, output_name: str, chromosome: str):
+def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp_path: str, output_name: str, region, start, end):
     """Calling all specified indiviudals to CHR vcfs"""
     inputs={'vcfs': files}
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '140g',
+    'memory': '144g',
     'walltime': '4-00:00:00'
     }
     spec="""
@@ -41,9 +117,10 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, temp_path: str, output
         -f {reference_genome} \
         --report-monomorphic \
         -b {bam_files} \
-        -r {chr} \
+		--populations {populations}
+        -r {region}:{start}-{end} \
         > {output}
-    """.format(bam_files=' '.join(files), reference_genome=reference_genome, chr=chromosome, output=temp_path + output_name)
+    """.format(bam_files=' '.join(files), reference_genome=reference_genome, populations=population_match, region=region, start=start, end=end, output = temp_path + output_name)
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
 #concat CHR vcfs -> genome vcf

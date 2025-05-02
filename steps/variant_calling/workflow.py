@@ -12,7 +12,7 @@ gwf = Workflow(defaults={'account': 'ostrich_thermal'})
 
 #Change pr spp.
 #Species (spp) information
-subsp = 'Sc_all'
+subsp = 'Sc_subsp'
 
 ###########################################
 #Reference genome REPLACE PR SPP !!!!! 
@@ -88,10 +88,11 @@ for root, dirs, files in os.walk(bam_path):
         if file.endswith(('filtered.bam', 'filtered.bam.bai')):
             # I want the samples to have the subspecies name in front so they will be easier later to distinguish, so I rename them here
             # Get the parent directory name (black, blue, red)
+            # but because I ran it again like an ass I will break and fix it now
             parent_dir = os.path.basename(root)
             # Check if the file already starts with the parent directory name to avoid double-prefixing
-            if not file.startswith(parent_dir + "_"):
-                new_name = f"{parent_dir}_{file}"
+            if file.startswith("_"):
+                new_name = file[1:]  # Remove only the first character
                 old_path = os.path.join(root, file)
                 new_path = os.path.join(root, new_name)
                 os.rename(old_path, new_path)
@@ -111,25 +112,6 @@ bam_files=sorted_bam_list
 
 # print(f'bam list: ,{bam_files}') # to check if all there
 
-####   #writing the above bam list to a file - deletes any previously deleted file
-####   OBS If parts needs to be run again (e.g last two jobs) ! this needs to be masked out 
-####   - for a full run it dosent matter!!  
-
-# # Check if the BAM file exists
-# if os.path.exists(bam_files):
-#     print("bamlist found. Deleting...")
-#     os.remove(bam_files)  # Delete the file if it exists
-
-# # Write each element on a separate line
-# with open(bam_files, 'w') as file:
-#     for i, element in enumerate(sorted_bam_list):
-#         file.write(element)
-#         if i < len(sorted_bam_list) - 1:
-#             file.write('\n')
-
-# print("New bamlist file created.")
-
-
 # getting samle names. 
 samples = [path.split('/')[-1].split('.')[0] for path in sorted_bam_list] # this will break easily but for now it should work
 # print(f'Sample names: , {samples}')
@@ -137,6 +119,14 @@ samples = [path.split('/')[-1].split('.')[0] for path in sorted_bam_list] # this
 
 # Example BAM file path
 bam_file_path = sorted_bam_list[0]
+
+## make populations file
+with open(f'{out_folder}populations_file.txt', "w") as f:
+    for sample in samples:
+        prefix = sample.split("_")[0]
+        f.write(f"{sample}\t{prefix}\n")
+
+populations = f'{out_folder}populations_file.txt'
 
 #Get the CHR names from the header of the reference genome
 
@@ -147,6 +137,21 @@ with open(reference_genome, 'r') as file:
 # Writing the called CHR to SPP_CHR.list
 with open('{}{spp}_CHR.list'.format(out_folder, spp=subsp), 'w') as file:
         file.write('\n'.join(chromosomes))
+# print(f'Chromosomes: {chromosomes}')
+
+## calculate start and endpoints for partitioning chromosomes from reference genome
+PARTITION_SIZE = 1000000
+sequences = parse_fasta(reference_genome)
+with open(f'{out_folder}reference_sequences.txt', 'w') as outfile:
+	outfile.write('\n'.join('\t'.join(str(i) for i in entry.values()) for entry in sequences))
+# Partitions reference genome
+nPadding = padding_calculator(parseFasta=sequences, size=PARTITION_SIZE)
+partitions = partition_chrom(parseFasta=sequences, size=PARTITION_SIZE, nPad=nPadding)
+with open(f'{out_folder}reference_partitions.{PARTITION_SIZE}bp.txt', 'w') as outfile:
+    outfile.write('\n'.join('\t'.join(str(i) for i in entry.values()) for entry in partitions))
+# print(f'Partitions: {partitions}')
+
+
 
 
 
@@ -159,12 +164,11 @@ with open('{}{spp}_CHR.list'.format(out_folder, spp=subsp), 'w') as file:
 #####################################################################################################
 
 
-
 #gwf 1 job: Call CHR VCFs from bam files.
 all_vcfs = []
-for i, chr in enumerate(chromosomes):
-    target_name = 'call_vcf_' + subsp + chr # Construct the unique target name
-    this_vcf = subsp + '_' + chr + '.vcf'
+for part in partitions:
+    target_name = 'call_vcf_' + subsp + part['num'] # Construct the unique target name
+    this_vcf = subsp + '_' + part['num'] + '.vcf'
     full_path_vcf = os.path.join(temps, this_vcf)
     all_vcfs.append(full_path_vcf)
     job1 = gwf.target_from_template(
@@ -173,8 +177,11 @@ for i, chr in enumerate(chromosomes):
             files=bam_files,
             temp_path=temps,
             output_name=this_vcf,
-            chromosome=chr,
-            reference_genome=reference_genome
+            reference_genome=reference_genome,
+            population_match=populations,
+            region=part['region'],
+            start=part['start'],
+            end=part['end']
         )
     )
 
