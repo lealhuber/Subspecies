@@ -110,14 +110,14 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     options={
     'cores': 1,
     'memory': '144g',
-    'walltime': '4-00:00:00'
+    'walltime': '2-00:00:00'
     }
     spec="""
     freebayes \
         -f {reference_genome} \
         --report-monomorphic \
         -b {bam_files} \
-		--populations {populations}
+		--populations {populations} \
         -r {region}:{start}-{end} \
         > {output}
     """.format(bam_files=' '.join(files), reference_genome=reference_genome, populations=population_match, region=region, start=start, end=end, output = temp_path + output_name)
