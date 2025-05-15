@@ -109,7 +109,7 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '144g',
+    'memory': '124g',
     'walltime': '2-00:00:00'
     }
     spec="""
@@ -166,8 +166,8 @@ def zip_file(file: str, species_name: str):
     protect=outputs['vcf_gz']
     options={
     'cores': 8,
-    'memory': '64g',
-    'walltime': '2-00:00:00'
+    'memory': '32g',
+    'walltime': '3-00:00:00'
     }
     spec="""
     bcftools view -Oz -o {output} {VCF}
