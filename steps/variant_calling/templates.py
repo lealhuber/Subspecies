@@ -195,14 +195,11 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat: str):
     'walltime': '24:00:00'
     }
     spec="""
-    #in order to summarrize the individuals stats with multiqc - the vcf needs to be "different" 
-
-    #stats pr. sample
+    
     bcftools view -s {sample} -Oz -o {path}{sample}.vcf.gz {VCF}
     bcftools index -c {path}{sample}.vcf.gz
     bcftools stats -s {sample} {path}{sample}.vcf.gz > {out}
 
-    rm {path}{sample}.vcf
     rm {path}{sample}.vcf.gz
     """.format(VCF=file, path=stats_path, sample=sample, out=output_file)
     return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
