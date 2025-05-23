@@ -35,7 +35,7 @@ out_folder =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/
 results =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/outputs/'
 
 #path to where the stats should be
-stats_path=f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/stats'
+stats_path=f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/stats/'
 
 
 #____CREATED VAIABLES__DO NOT CHANGE!!  --- UNLESS structure changes!!! ____# 

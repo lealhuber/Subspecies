@@ -184,7 +184,7 @@ def zip_file(file: str, species_name: str):
 # Stats on genome_vcf, individual stats 
 def vcf_stats(file: str, sample: str, stats_path: str, this_stat: str):
     """Statistics on genome_vcf.gz, individual stats"""
-    output_file = '{path}/{sample}.stats'.format( \
+    output_file = '{path}{sample}.stats'.format( \
         path=stats_path, sample=sample)
     inputs={'vcf_gz': file}
     outputs={'vcf_pop_stats': this_stat}
