@@ -109,13 +109,17 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '124g',
+    'memory': '200g',
     'walltime': '2-00:00:00'
     }
     spec="""
+	echo "START: $(date)"
+	echo "JobID: $SLURM_JOBID"
+	
     freebayes \
         -f {reference_genome} \
         --report-monomorphic \
+		--use-best-n-alleles 5 \
         -b {bam_files} \
 		--populations {populations} \
         -r {region}:{start}-{end} \
@@ -131,7 +135,8 @@ def concat_CHR_vcf(files: list, species_name: str, path: str):
     outputs={'genome_vcf': output_file}
     options={
     'cores': 1,
-    'memory': '8g'
+    'memory': '8g',
+    'walltime': '12:00:00'
     }
     spec="""
     bcftools concat \
@@ -177,7 +182,7 @@ def zip_file(file: str, species_name: str):
     return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
 # Stats on genome_vcf, individual stats 
-def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
+def vcf_stats(file: str, sample: str, stats_path: str, this_stat: str):
     """Statistics on genome_vcf.gz, individual stats"""
     output_file = '{path}/{sample}.stats'.format( \
         path=stats_path, sample=sample)
@@ -186,15 +191,14 @@ def vcf_stats(file: str, sample: str, stats_path: str, this_stat:str):
     protect=outputs['vcf_pop_stats']
     options={
     'cores': 1,
-    'memory': '16g',
-    'walltime': '10:00:00'
+    'memory': '4g',
+    'walltime': '24:00:00'
     }
     spec="""
     #in order to summarrize the individuals stats with multiqc - the vcf needs to be "different" 
 
     #stats pr. sample
-    bcftools view -s {sample} {VCF} > {path}{sample}.vcf
-    bcftools view -Oz -o {path}{sample}.vcf.gz {VCF}
+    bcftools view -s {sample} -Oz -o {path}{sample}.vcf.gz {VCF}
     bcftools index -c {path}{sample}.vcf.gz
     bcftools stats -s {sample} {path}{sample}.vcf.gz > {out}
 
