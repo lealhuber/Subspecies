@@ -78,6 +78,7 @@ def bwa_index(ref_genome, out_dir):
 
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
+# add proper RG tags before use!!
 def mapping_pairdend(input_fasta_pair1,input_fasta_pair2,sample_name,ref_genome,out_dir):
     """Template of mapping a pair of fasta files to a reference genome using bwa mem"""
     inputs = {'read1': input_fasta_pair1,
@@ -103,6 +104,48 @@ def mapping_pairdend(input_fasta_pair1,input_fasta_pair2,sample_name,ref_genome,
         
     echo "END: $(date)"
 	echo "$(jobinfo "$SLURM_JOBID")"    
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+def add_RG(alignment_file, sample_name, SM, PU, DT, out_dir):
+    """Template: Add the proper RG tag because I forgot first like an idiot. Thus not needed in case of complete rerun."""
+    inputs = {'alignment': alignment_file}
+    outputs = {'bam': f'{out_dir}/{sample_name}.RG.bam',
+               'bai': f'{out_dir}/{sample_name}.RG.bam.bai'}
+    options = {
+		'cores': 18,
+		'memory': '60g',
+		'walltime': '24:00:00'
+	}
+    spec = f'''
+    samtools addreplacerg \\
+        --threads 4 \\
+        -r ID:{sample_name} \\
+        -r SM:{SM} \\
+        -r PU:{PU} \\
+        -r DT:{DT} \\
+        {alignment_file} \\
+        | samtools sort \\
+            --threads 4 \\
+            -o {out_dir}/{sample_name}.RG.bam -
+        samtools index {out_dir}/{sample_name}.RG.bam
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+def merge_bam(alignment_file1, alignment_file2, sampleID, out_dir):
+    """Template: Merge bam files and re-index."""
+    inputs = {'bam1': alignment_file1,
+              'bam2': alignment_file2}
+    outputs = {'bam': f'{out_dir}/{sampleID}.merged.bam',
+               'bai': f'{out_dir}/{sampleID}.merged.bam.bai'}
+    options = {
+		'cores': 18,
+		'memory': '60g',
+		'walltime': '24:00:00'
+	}
+    spec = f'''
+    samtools merge {out_dir}/{sampleID}.merged.bam {alignment_file1} {alignment_file2}
+    samtools index {out_dir}/{sampleID}.merged.bam
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
