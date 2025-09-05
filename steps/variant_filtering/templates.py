@@ -2,6 +2,8 @@
 from gwf import AnonymousTarget # type: ignore
 import os
 
+# With all these filters, I shouldn't lose invariant sites, so make sure of that when filtering.
+
 def allele_filter(vcf_file, prefix, out_dir):
     """ Template for filtering out only biallelic sites and removing indels"""
     inputs = {'file': vcf_file}
@@ -37,14 +39,14 @@ def quality_filter(vcf_file, prefix, out_dir, min_site_DP, max_site_DP, min_SNP_
     --minQ 30 --max-missing 0.95 \\
     --min-meanDP {min_site_DP} --max-meanDP {max_site_DP} \\
     --minDP {min_SNP_DP} --maxDP {max_SNP_DP} \\
-    --recode --recode-INFO-all \\
+    --recode \\
     --stdout | bgzip -c > {prefix}.filtered.vcf.gz
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
 def bias_filter(vcf_file, prefix, out_dir, min_qual, avgDP, qual_div_avgDP):
     """ Template for filtering out sites with mapping quality bias, position bias and strand bias using bcftools
-    (suggestions by htslib.org)"""
+    (suggestions by htslib.org/workflow/filter.html)"""
     inputs = {'file': vcf_file}
     outputs = {'filtered_file': f'{out_dir}/{prefix}.nobias.vcf.gz'}
     options={
@@ -99,7 +101,7 @@ def vcf_stats(vcf_file, prefix, out_dir):
 	echo "JobID: $SLURM_JOBID"
     # Count the number of  variants
     bcftools view -H {vcf_file} | wc -l > {out_dir}/{prefix}.allCounts
-    # calculate allele frequency
+    # calculate allele frequency (for sites with max 2 alleles)
     vcftools --gzvcf {vcf_file} --freq2 --max-alleles 2 --out {out_dir}/{prefix}
     # mean depth of coverage per individual
     vcftools --gzvcf {vcf_file} --depth --out {out_dir}/{prefix}
