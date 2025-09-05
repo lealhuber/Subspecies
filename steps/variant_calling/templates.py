@@ -104,13 +104,13 @@ def partition_chrom(parseFasta: list, size: int = 500000, nPad: int = 5):
 
 #CALL chr vcfs 
 def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp_path: str, output_name: str, region, start, end):
-    """Calling all specified indiviudals to CHR vcfs"""
+    """Calling all specified indiviudals to CHR vcfs. Adjust memory and time as needed."""
     inputs={'vcfs': files}
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '200g',
-    'walltime': '2-00:00:00'
+    'memory': '240g',
+    'walltime': '1-00:00:00'
     }
     spec="""
 	echo "START: $(date)"
@@ -124,6 +124,8 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
 		--populations {populations} \
         -r {region}:{start}-{end} \
         > {output}
+	
+	echo "START: $(date)"
     """.format(bam_files=' '.join(files), reference_genome=reference_genome, populations=population_match, region=region, start=start, end=end, output = temp_path + output_name)
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 

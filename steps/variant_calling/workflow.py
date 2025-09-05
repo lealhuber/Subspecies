@@ -12,7 +12,7 @@ gwf = Workflow(defaults={'account': 'ostrich_thermal'})
 
 #Change pr spp.
 #Species (spp) information
-subsp = 'Sc_subsp'
+subsp = 'Aug25'
 
 ###########################################
 #Reference genome REPLACE PR SPP !!!!! 
@@ -21,7 +21,7 @@ subsp = 'Sc_subsp'
 reference_genome='/faststorage/project/ostrich_thermal/BACKUP/ostrich_reference/Struthio_camelus_HiC/bwa_indexed/Struthio_camelus_HiC.fasta'
 
 #The path to where the folder containing .bam files (files can be in subfolders)
-bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/addRG/outputs/'
+bam_path =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/mapping/outputs/'
 
 #Folders for pipeline outputs. If they do not exsist, they will be created.  
 
@@ -37,14 +37,6 @@ results =f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/var
 #path to where the stats should be
 stats_path=f'/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/{subsp}/stats/'
 
-
-#____CREATED VAIABLES__DO NOT CHANGE!!  --- UNLESS structure changes!!! ____# 
-
-#_____________________________________________ DONT CHANGE !!!! 
-#OUTPUT directories: *change for new USER
-#Check if present - if not create: Temporary folder (and spp year folder) + Results folders(),    
-
-###### dir structure !  -- Should not be changed if one wishes to use the filterVCF workflow :D
 
 #Temporary dir
 chr_vcf_path = temps
@@ -88,14 +80,13 @@ for root, dirs, files in os.walk(bam_path):
         if file.endswith(('filtered.bam', 'filtered.bam.bai')):
             # I want the samples to have the subspecies name in front so they will be easier later to distinguish, so I rename them here
             # Get the parent directory name (black, blue, red)
-            # but because I ran it again like an ass I will break and fix it now
             parent_dir = os.path.basename(root)
             # Check if the file already starts with the parent directory name to avoid double-prefixing
-            if file.startswith("_"):
-                new_name = file[1:]  # Remove only the first character
+            if not file.startswith(parent_dir):
+                new_name = '_'.join([parent_dir, file])  # Join so new filename is parent_dir_oldfilename
                 old_path = os.path.join(root, file)
                 new_path = os.path.join(root, new_name)
-                os.rename(old_path, new_path)
+                os.rename(old_path, new_path) # rename the file path
                 file = new_name  # Update the file variable so the renamed path is appended
             if file.endswith('filtered.bam'):
                 # Append the absolute path of the file to the list, but only of the bam file
@@ -114,7 +105,7 @@ bam_files=sorted_bam_list
 
 # getting samle names. 
 samples = [path.split('/')[-1].split('.')[0] for path in sorted_bam_list] # this will break easily but for now it should work
-# print(f'Sample names: , {samples}')
+print(f'Sample names: , {samples}')
 
 
 # Example BAM file path
@@ -196,7 +187,7 @@ job2 = gwf.target_from_template(
     name='concat_CHR_vcf' + subsp,
     template=concat_CHR_vcf(
         files=all_vcfs,
-        species_name=subsp,
+        species_name=subsp, # I think this doesn't actually do anything...
         path=results
         )
     )
