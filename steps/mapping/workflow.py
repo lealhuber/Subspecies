@@ -101,8 +101,9 @@ for SUBSPEC in subspecies:
 
     for sampleID in sampleIDs:
 
-        # Find .merged.bam files in outDir matching sampleID
-        bam_files = [f for f in glob.glob(f"{outDir}/*{sampleID}*.RG.bam") if os.path.isfile(f)]
+        # Find .RG.bam files in outDir matching sampleID
+        bam_files = [f for f in glob.glob(f"{outDir}/*{sampleID}.RG.fixm.bycoord.bam") if os.path.isfile(f)]
+        # print(f"BAM files for {SUBSPEC} sampleID {sampleID}: {bam_files}")  # Debugging line
         if len(bam_files) >= 2:
             file1, file2 = bam_files[:2]
             merge_samples = gwf.target_from_template(
@@ -117,14 +118,15 @@ for SUBSPEC in subspecies:
             input_bam = merge_samples.outputs['bam'] # to ensure the next step has an input
         elif len(bam_files) == 1:
             input_bam = bam_files[0] # if only one bam file, use it directly
+            print(f"Only one BAM file found for {SUBSPEC} sampleID {sampleID}, using it directly.")
         else:
             print(f"No BAM files found for {SUBSPEC} sampleID {sampleID}, skipping.")
-            continue  # No BAM files found, skip
+            continue
 
         mark_dups = gwf.target_from_template(
             name=f'dups_{SUBSPEC}_{sampleID}',
             template=mark_dups_samtools(
-                alignment_file=merge_samples.outputs['bam'],
+                alignment_file=input_bam,
                 sample_name=sampleID,
                 out_dir=outDir
             )

@@ -80,7 +80,7 @@ def bwa_index(ref_genome, out_dir):
 
 # add proper RG tags before use!!
 def mapping_pairdend(input_fasta_pair1,input_fasta_pair2,sample_name,ref_genome,out_dir):
-    """Template of mapping a pair of fasta files to a reference genome using bwa mem"""
+    """Template of mapping a pair of fasta files to a reference genome using bwa mem. Fix RG before next use!"""
     inputs = {'read1': input_fasta_pair1,
               'read2': input_fasta_pair2,
               'reference': ref_genome}
@@ -108,10 +108,11 @@ def mapping_pairdend(input_fasta_pair1,input_fasta_pair2,sample_name,ref_genome,
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
 def add_RG(alignment_file, sample_name, SM, PU, DT, out_dir):
-    """Template: Add the proper RG tag because I forgot first like an idiot. Thus not needed in case of complete rerun."""
+    """Template: Add the proper RG tag because I forgot first like an idiot. Thus not needed in case of complete rerun.
+    What is needed though is fixing read mates and sorting by coordinate before merging!"""
     inputs = {'alignment': alignment_file}
-    outputs = {'bam': f'{out_dir}/{sample_name}.RG.bam',
-               'bai': f'{out_dir}/{sample_name}.RG.bam.bai'}
+    outputs = {'bam': f'{out_dir}/{sample_name}.RG.fixm.bycoord.bam',
+               'bai': f'{out_dir}/{sample_name}.RG.fixm.bycoord.bam.bai'}
     options = {
 		'cores': 18,
 		'memory': '60g',
@@ -120,15 +121,23 @@ def add_RG(alignment_file, sample_name, SM, PU, DT, out_dir):
     spec = f'''
     samtools addreplacerg \\
         --threads 4 \\
+        -w \\
         -r ID:{sample_name} \\
         -r SM:{SM} \\
         -r PU:{PU} \\
         -r DT:{DT} \\
+        -o - \\
         {alignment_file} \\
-        | samtools sort \\
-            --threads 4 \\
-            -o {out_dir}/{sample_name}.RG.bam -
-        samtools index {out_dir}/{sample_name}.RG.bam
+    | samtools fixmate \\
+        --threads {options['cores'] - 1} \\
+        -m \\
+		--output-fmt BAM \\
+		- \\
+	| samtools sort \\
+		--threads {options['cores'] - 1} \\
+		--output-fmt BAM \\
+        -o {out_dir}/{sample_name}.RG.fixm.bycoord.bam
+    samtools index {out_dir}/{sample_name}.RG.fixm.bycoord.bam
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
@@ -165,22 +174,12 @@ def mark_dups_samtools(alignment_file, sample_name, out_dir):
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
 
-    samtools fixmate \\
-        --threads {options['cores'] - 1} \\
-        		-m \\
-		--output-fmt BAM \\
-		{alignment_file} \\
-		- \\
-	| samtools sort \\
-		--threads {options['cores'] - 1} \\
-		--output-fmt BAM \\
-		- \\
-	| samtools markdup \\
+    samtools markdup \\
 		--threads {options['cores'] - 1} \\
 		--output-fmt BAM \\
 		-s \\
 		-f {out_dir}/{sample_name}.markdup.bam.stats \\
-		- \\
+		{alignment_file} \\
 		{out_dir}/{sample_name}.markdup.bam
 	
 	samtools index \\
