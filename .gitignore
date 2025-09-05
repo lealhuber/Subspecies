@@ -18,3 +18,7 @@ obsolete/
 *.tmp
 *.html
 *.bed
+*.json
+*.log
+*.gz*
+*.stats
