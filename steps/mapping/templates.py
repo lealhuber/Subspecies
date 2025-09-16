@@ -2,7 +2,6 @@
 from gwf import AnonymousTarget # type: ignore
 import os, glob
 from gwf import Workflow # type: ignore
-import numpy as np # type: ignore
 
 gwf = Workflow(defaults={'account': 'ostrich_thermal'})
 
@@ -165,6 +164,7 @@ def mark_dups_samtools(alignment_file, sample_name, out_dir):
     outputs = {'markdup': f'{out_dir}/{sample_name}.markdup.bam',
                'bai': f'{out_dir}/{sample_name}.markdup.bam.bai',
                'stats': f'{out_dir}/{sample_name}.markdup.bam.stats'}
+    protect = outputs['stats']
     options = {
 		'cores': 18,
 		'memory': '60g',
@@ -191,7 +191,7 @@ def mark_dups_samtools(alignment_file, sample_name, out_dir):
     echo "END: $(date)"
 	echo "$(jobinfo "$SLURM_JOBID")"
     '''
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
 def samtools_stats(alignment_file, sample_name, out_dir):
     """ Template to create various mapping statistics using samtools"""
@@ -200,6 +200,7 @@ def samtools_stats(alignment_file, sample_name, out_dir):
                          f'{out_dir}/{sample_name}.flagstat',
                          f'{out_dir}/{sample_name}.coverage',
                          f'{out_dir}/{sample_name}.stats']}
+    protect = outputs['stats']
     options = {
 		'cores': 8,
 		'memory': '32g',
@@ -232,7 +233,7 @@ def samtools_stats(alignment_file, sample_name, out_dir):
     echo "END: $(date)"
 	echo "$(jobinfo "$SLURM_JOBID")"
     '''
-    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    return AnonymousTarget(inputs=inputs, outputs=outputs, protect=protect, options=options, spec=spec)
 
 def samtools_filter(alignment_file, sample_name, out_dir, min_mq):
     """ Template for filtering out low quality reads and duplicates using samtools"""

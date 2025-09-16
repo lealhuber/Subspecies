@@ -1,6 +1,5 @@
 ## declare the workflow
 from gwf import Workflow # type: ignore
-import numpy as np # type: ignore
 import re
 from templates import *
 
