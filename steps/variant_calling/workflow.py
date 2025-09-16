@@ -106,6 +106,9 @@ bam_files=sorted_bam_list
 # getting samle names. 
 samples = [path.split('/')[-1].split('.')[0] for path in sorted_bam_list] # this will break easily but for now it should work
 print(f'Sample names: , {samples}')
+# getting read group names because thats how they are called in the vcf
+read_groups = ["_".join([sample.split("_")[1], sample.split("_")[2]]) for sample in samples]
+print(f'Read group names: , {read_groups}')
 
 
 # Example BAM file path
@@ -192,13 +195,14 @@ job2 = gwf.target_from_template(
         )
     )
 
-# gwf 3 job: sort file by samle list, and chr_pos sorting
+# gwf 3 job: sort file by sample list, and chr_pos sorting
+# unfortunately they are named by the read group names and not the sample names, so I need to use the list of the read group names
 job3 = gwf.target_from_template(
     name='sort_vcf' + subsp,
     template=Sort_vcf(
         vcf=job2.outputs['genome_vcf'],
         species_name=subsp,
-        samples=samples, 
+        samples=read_groups, 
         path=results
         )
     )
@@ -215,7 +219,7 @@ job4 = gwf.target_from_template(
 
 # gwf 5 job: Raw vcf stats pr sample
 all_stats = []
-for i, sample in enumerate(samples):
+for i, sample in enumerate(read_groups):
     this_stat='{path}{sample}.stats'.format( \
             path=stats_path, sample=sample)
     all_stats.append(this_stat)

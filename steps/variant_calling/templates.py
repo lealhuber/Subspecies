@@ -109,8 +109,8 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '240g',
-    'walltime': '1-00:00:00'
+    'memory': '512g',
+    'walltime': '2-00:00:00'
     }
     spec="""
 	echo "START: $(date)"
@@ -155,8 +155,8 @@ def Sort_vcf(vcf: str, species_name: str, path: str, samples: list):
     outputs={'sorted_genome_vcf': output_file}
     options={
     'cores': 1,
-    'memory': '8g',
-    'walltime': '2-00:00:00'
+    'memory': '16g',
+    'walltime': '1-00:00:00'
     }
     spec="""
     bcftools view -s {samples} {vcf} | bcftools sort > {output}
@@ -166,15 +166,15 @@ def Sort_vcf(vcf: str, species_name: str, path: str, samples: list):
 
 # Zip VCF 
 def zip_file(file: str, species_name: str):
-    """zip genome file -> .vcf.gz """
+    """zip genome file -> .vcf.gz and overall stats"""
     output_file = '{path}/sorted_{name}.vcf.gz'.format(path=os.path.dirname(file), name=species_name)
     inputs={'genome_vcf': file}
     outputs={'vcf_gz': output_file}
     protect=outputs['vcf_gz']
     options={
-    'cores': 8,
-    'memory': '32g',
-    'walltime': '3-00:00:00'
+    'cores': 1,
+    'memory': '4g',
+    'walltime': '15:00:00'
     }
     spec="""
     bcftools view -Oz -o {output} {VCF}
