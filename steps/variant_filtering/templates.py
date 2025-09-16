@@ -4,7 +4,7 @@ import os
 
 # With all these filters, I shouldn't lose invariant sites, so make sure of that when filtering.
 
-def allele_filter(vcf_file, prefix, out_dir):
+def allele_filter(vcf_file, prefix, out_dir, MAF):
     """ Template for filtering out only biallelic sites and removing indels"""
     inputs = {'file': vcf_file}
     outputs = {'filtered_file': f'{out_dir}/{prefix}.biallelic.snp.vcf.gz'}
@@ -17,13 +17,13 @@ def allele_filter(vcf_file, prefix, out_dir):
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
     vcftools --gzvcf {vcf_file} \\
-    --remove-indels --min-alleles 2 --max-alleles 2 --remove-filtered-all \\
+    --remove-indels --maf {MAF} --min-alleles 2 --max-alleles 2 --remove-filtered-all \\
     --recode --recode-INFO-all \\
     --stdout | bgzip -c > {prefix}.biallelic.snp.vcf.gz
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def quality_filter(vcf_file, prefix, out_dir, min_site_DP, max_site_DP, min_SNP_DP, max_SNP_DP):
+def quality_filter(vcf_file, prefix, out_dir, min_qual, max_missing, min_DP, max_DP):
     """ Template for filtering out sites passing basic best standart quality filters"""
     inputs = {'file': vcf_file}
     outputs = {'filtered_file': f'{out_dir}/{prefix}.filtered.vcf.gz'}
@@ -36,9 +36,9 @@ def quality_filter(vcf_file, prefix, out_dir, min_site_DP, max_site_DP, min_SNP_
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
     vcftools --gzvcf {vcf_file} \\
-    --minQ 30 --max-missing 0.95 \\
-    --min-meanDP {min_site_DP} --max-meanDP {max_site_DP} \\
-    --minDP {min_SNP_DP} --maxDP {max_SNP_DP} \\
+    --minQ {min_qual} --max-missing {max_missing} \\
+    --min-meanDP {min_DP} --max-meanDP {max_DP} \\
+    --minDP {min_DP} --maxDP {max_DP} \\
     --recode \\
     --stdout | bgzip -c > {prefix}.filtered.vcf.gz
     '''
@@ -61,17 +61,22 @@ def bias_filter(vcf_file, prefix, out_dir, min_qual, avgDP, qual_div_avgDP):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def HWE_filter(vcf_file, prefix, out_dir, stat_dir):
-    """ Template for removing sites that deviate from HWE. DO ONLY WITHIN POPULATIONS!!"""
+def HWE_filter(vcf_file, prefix, samples_list, temp_dir, out_dir, stat_dir):
+    """ Template for getting samples of one population and removing sites that deviate from HWE within population."""
     inputs = {'file': vcf_file}
-    outputs = {'filtered_file': f'{out_dir}/{prefix}.HWE.vcf.gz'}
+    outputs = {'split_file': f'{temp_dir}/{prefix}.vcf.gz',
+               'filtered_file': f'{out_dir}/{prefix}.HWE.vcf.gz'}
     options={
         'cores': 1,
         'memory': '32g',
         'walltime': '10:00:00'
     }
     spec = f'''
-    vcftools --gzvcf {vcf_file} --hwe 0.05 \\
+    echo "START: $(date)"
+	echo "JobID: $SLURM_JOBID"
+    bfcftools view -s {samples_list} -Oz -o {temp_dir}/{prefix}.vcf.gz {vcf_file}
+
+    vcftools --gzvcf {temp_dir}/{prefix}.vcf.gz --hwe 0.05 \\
     --recode --recode-INFO-all --stdout | bgzip -c > ${out_dir}/{prefix}.HWE.vcf.gz
 
     bcftools view -H {out_dir}/{prefix}.HWE.vcf.gz | wc -l \\
@@ -81,7 +86,7 @@ def HWE_filter(vcf_file, prefix, out_dir, stat_dir):
 
 
 def vcf_stats(vcf_file, prefix, out_dir):
-    """ Template for vcf stats"""
+    """ Template for vcf stats. Adapted from https://speciationgenomics.github.io/filtering_vcfs/"""
     inputs = {'file': vcf_file}
     outputs = {'allele_frequency': f'{out_dir}/{prefix}.frq',
                'depth': f'{out_dir}/{prefix}.idepth',
