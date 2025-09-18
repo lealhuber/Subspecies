@@ -12,6 +12,7 @@ vcf_outputs/
 QC/
 multiqc_data/
 obsolete/
+simonmartin_genomics/
 
 
 # Ignore these file types:
