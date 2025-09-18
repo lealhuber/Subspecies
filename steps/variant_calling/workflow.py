@@ -12,7 +12,7 @@ gwf = Workflow(defaults={'account': 'ostrich_thermal'})
 
 #Change pr spp.
 #Species (spp) information
-subsp = 'Aug25'
+subsp = 'Sep25'
 
 ###########################################
 #Reference genome REPLACE PR SPP !!!!! 
@@ -144,8 +144,9 @@ partitions = partition_chrom(parseFasta=sequences, size=PARTITION_SIZE, nPad=nPa
 with open(f'{out_folder}reference_partitions.{PARTITION_SIZE}bp.txt', 'w') as outfile:
     outfile.write('\n'.join('\t'.join(str(i) for i in entry.values()) for entry in partitions))
 # print(f'Partitions: {partitions}')
-
-
+# I think I only want scaffold that are 1000bp or longer, so I will filter the partitions here
+partitions = [part for part in partitions if int(part['end']) >= 1000] # takes only partitions longer than 1000bp
+# print(f'Filtered partitions: {partitions}')
 
 
 

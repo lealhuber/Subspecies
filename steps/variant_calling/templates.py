@@ -109,8 +109,8 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '512g',
-    'walltime': '2-00:00:00'
+    'memory': '64g',
+    'walltime': '1-00:00:00'
     }
     spec="""
 	echo "START: $(date)"
@@ -119,7 +119,9 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     freebayes \
         -f {reference_genome} \
         --report-monomorphic \
+		--genotype-qualities \
 		--use-best-n-alleles 5 \
+		--use-mapping-quality \
         -b {bam_files} \
 		--populations {populations} \
         -r {region}:{start}-{end} \
