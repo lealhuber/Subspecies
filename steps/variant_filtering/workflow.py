@@ -19,22 +19,15 @@ os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
 
 vcf_all = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_calling/Aug25/outputs/sorted_Aug25.vcf.gz'
+# this time am using the vcf with only scaffolds > 1000bp, will call this mtt (more than thousand)
 
-# make random subset of vcf for testing
-vcf_sub = gwf.target_from_template(
-    name = 'random_subset',
-    template = random_subset(
-        vcf_file=vcf_all,
-        prefix='raw',
-        out_dir=temp_dir
-        )
-    )
-
+# get stats on subset to see what filtering to do
 stat_subset = gwf.target_from_template(
-    name = 'get_stats_subset',
-    template=vcf_stats(
-        vcf_file=vcf_sub.outputs['subset_file'],
-        prefix='pre_filter.subset',
+    name = 'get_stats_initial',
+    template=vcf_stats_subset(
+        vcf_file=vcf_all,
+        sampling_frq=0.01,
+        prefix='pre_filter.mtt.subset',
         out_dir=stat_dir
         )
     )
@@ -46,7 +39,7 @@ filter_qual = gwf.target_from_template(
     name = 'filter_qual_all',
     template=quality_filter(
         vcf_file=vcf_all,
-        prefix='all',
+        prefix='mtt',
         out_dir=temp_dir,
         #min_qual=20,
         max_missing=0.9,
@@ -58,20 +51,12 @@ filter_qual = gwf.target_from_template(
 # check what quality filtering did
 # it won't remove much so do it on small subset again
 
-vcf_sub2 = gwf.target_from_template(
-    name = 'subset_filtered',
-    template = random_subset(
+stat_postqual = gwf.target_from_template(
+    name = 'get_stats_post_qual',
+    template=vcf_stats_subset(
         vcf_file=filter_qual.outputs['filtered_file'],
-        prefix='filtered',
-        out_dir=temp_dir
-        )
-    )
-
-stat_filtered = gwf.target_from_template(
-    name = 'get_filtered_stats',
-    template=vcf_stats(
-        vcf_file=vcf_sub2.outputs['subset_file'],
-        prefix='qualfilter_sub',
+        sampling_frq=0.01,
+        prefix='post_qualfilter.mtt',
         out_dir=stat_dir
         )
     )
@@ -81,18 +66,19 @@ filter_multiallelic = gwf.target_from_template(
     name = 'filter_multiallelic_all',
     template=allele_filter(
         vcf_file=filter_qual.outputs['filtered_file'],
-        prefix='all.filtered', # what are you putting in?
+        prefix='mtt.filtered', # what are you putting in?
         out_dir=output_dir
         )
     )
   
 # check what allele filtering did
+# input vcf should be gzipped
 stat_postallele = gwf.target_from_template(
     name = 'get_stats_post_allele',
     template=vcf_stats_subset(
         vcf_file=filter_multiallelic.outputs['filtered_file'],
-        sampling_frq=0.5,
-        prefix='post_allelefilter',
+        sampling_frq=0.01,
+        prefix='post_allelefilter.mtt',
         out_dir=stat_dir
         )
     )
@@ -117,7 +103,7 @@ stat_postallele = gwf.target_from_template(
     name = 'get_stats_post_bias',
     template=vcf_stats_subset(
         vcf_file=filter_bias.outputs['filtered_file'],
-        sampling_frq=0.5,
+        sampling_frq=0.05,
         prefix='post_biasfilter',
         out_dir=stat_dir
         )
@@ -127,52 +113,74 @@ stat_postallele = gwf.target_from_template(
 
 
 # split file into populations for Hardy-Weinberg filter
+# but without the mixed individuals they will mess it up (133 and 122)
 blacksamples = {'P1878_107', 'P1878_108', 'P1878_109', 'P1878_110', 'P1878_111', 'P1878_112', 'P1878_113', 'P1878_114', 'P1878_115', 'P1878_116'}
-bluesamples = {'P1878_117', 'P1878_118', 'P1878_119', 'P1878_120', 'P1878_121', 'P1878_122', 'P1878_123', 'P1878_124', 'P1878_125', 'P1878_126'}
-redsamples = {'P1878_127', 'P1878_128', 'P1878_129', 'P1878_130', 'P1878_131', 'P1878_132', 'P1878_133', 'P1878_134', 'P1878_135', 'P1878_136'}
+bluesamples = {'P1878_117', 'P1878_118', 'P1878_119', 'P1878_120', 'P1878_121', 'P1878_123', 'P1878_124', 'P1878_125', 'P1878_126'}
+redsamples = {'P1878_127', 'P1878_128', 'P1878_129', 'P1878_130', 'P1878_131', 'P1878_132', 'P1878_134', 'P1878_135', 'P1878_136'}
 
-""" HWE_black = gwf.target_from_template(
-    name = 'black_HWE,
+HWE_black = gwf.target_from_template(
+    name = 'black_HWE',
     template=HWE_filter(
-        vcf_file=filter_biallelic.outputs['filtered_file'],
-        prefix='black.biallelic.snp',
-        samples_list=blacksamples
+        vcf_file=filter_multiallelic.outputs['filtered_file'],
+        prefix='black',
+        samples_list=blacksamples,
         temp_dir=temp_dir,
         out_dir=output_dir,
         stat_dir=stat_dir
+        )
     )
-) """
 
-""" HWE_blue = gwf.target_from_template(
-    name = 'blue_HWE,
+HWE_blue = gwf.target_from_template(
+    name = 'blue_HWE',
     template=HWE_filter(
-        vcf_file=filter_biallelic.outputs['filtered_file'],
-        prefix='blue.biallelic.snp',
-        samples_list=bluesamples
+        vcf_file=filter_multiallelic.outputs['filtered_file'],
+        prefix='blue',
+        samples_list=bluesamples,
         temp_dir=temp_dir,
         out_dir=output_dir,
         stat_dir=stat_dir
+        )
     )
-) """
 
-""" HWE_red = gwf.target_from_template(
-    name = 'red_HWE,
+HWE_red = gwf.target_from_template(
+    name = 'red_HWE',
     template=HWE_filter(
-        vcf_file=filter_biallelic.outputs['filtered_file'],
-        prefix='red.biallelic.snp',
-        samples_list=redsamples
+        vcf_file=filter_multiallelic.outputs['filtered_file'],
+        prefix='red',
+        samples_list=redsamples,
         temp_dir=temp_dir,
         out_dir=output_dir,
         stat_dir=stat_dir
+        )
     )
-) """
 
-# in the end do stats again
-""" stat_nrs = gwf.target_from_template(
-    name = 'get_vcf_stats',
-    template=vcf_stats(
+# in the end do stats again for each subspecies
+stat_HWE_black = gwf.target_from_template(
+    name = 'black_HWE_stats',
+    template=vcf_stats_subset(
         vcf_file=HWE_black.outputs['filtered_file'],
+        sampling_frq=0.05,
         prefix='Black_post_HWE',
         out_dir=stat_dir
         )
-    ) """
+    )
+
+stat_HWE_blue = gwf.target_from_template(
+    name = 'blue_HWE_stats',
+    template=vcf_stats_subset(
+        vcf_file=HWE_blue.outputs['filtered_file'],
+        sampling_frq=0.05,
+        prefix='Blue_post_HWE',
+        out_dir=stat_dir
+        )
+    )
+
+stat_HWE_red = gwf.target_from_template(
+    name = 'red_HWE_stats',
+    template=vcf_stats_subset(
+        vcf_file=HWE_red.outputs['filtered_file'],
+        sampling_frq=0.05,
+        prefix='Red_post_HWE',
+        out_dir=stat_dir
+        )
+    )
