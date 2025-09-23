@@ -1,14 +1,18 @@
 # Subspecies project
-This project is part of the ChamberTempRNA project, but because it involves very different analyses I am treating it as its own. We have individual and pooled WGS data from three subspecies of ostriches that used to be raised on the Oudtshoorn research farm. The aims of this project are
-1) finding genes related to thermal adaptation by identifying signatures of selection between the subspecies
-2) identifying promoter regions of the candidate genes from the ChamberTempRNA project and looking if there are variants
-For this, we will do variant calling and subsequently do an Fst analysis
-First everything for the individual sequencing.
+This project is part of the ChamberTempRNA project, but because it involves very different analyses I am treating it as its own. We have individual and pooled WGS data from three subspecies of ostriches that used to be raised on the Oudtshoorn research farm: *Struthio camelus australis*, also referred to as "blue", *S.c. massaicus*, also referred to as "red", and the semi-domesticated form common on Klein Karoo ostrich farms which is thought to originate from *S.c. australis* admixed with *S.c. camelus*, and is often referred to as "South African blacks", here referred to as "black". The aims of this project are
+1) finding genes/regions related to adaptation to different thermal environments by identifying regions of differentiation between the subspecies and signatures of selection
+2) evaluating the significance of the candidate genes from the ChamberTempRNA project for thermal adaptation by identifying potential variation between subspecies in those genes or adjacent regions, regulatory regions and genes of the same pathways.
+For this, we first evaluate population structure, determine population differentiation and identify signatures of selection.
+First everything for the individual sequencing, where there is WGS data for 10 individuals per subspecies for a total of 30 samples.
 ## Mapping
 First I removed adapters and trimmed reads using TrimGalore, discarding reads with a Phred score below 20 and removing Ns. Then reads were mapped using bwa mem with default settings, adding sample names as read groups. Most samples were sequenced twice on different flow cells, so after mapping the BAM files from the same samples were merged. Using samtools, duplicates were marked and, after some statistics, discarded. I also filtered out reads with a MQ below 20. QC results can be found in the respective subspecies folders red, black and blue in mapping/outputs/ and mapping/QC.
 ## Variant calling
-Joint calling with Nathalies script. It splits into scaffolds and the scaffolds into 1 MB chunks and then calls variants with freebayes, also keeping monomorphic sites. The --populations option was used to inform freebayes of subspecies membership. The population-based bayesian inference model is thus partitioned on the basis of the populations. Then the vcf files were concatenated into one file for statistics and filtering.
+Joint calling with Nathalies script. It splits into scaffolds and the scaffolds into 1 MB chunks and then calls variants with freebayes, also keeping monomorphic sites. I discarded scaffolds that are shorter than 1000 bp here (accounting to 0.16% of the genome) The --populations option was used to inform freebayes of subspecies membership. The population-based bayesian inference model is thus partitioned on the basis of the populations. Then the vcf files were concatenated into one file for statistics and filtering.
 ## Variant filtering
-Variants were filtered for basic best practice quality of 30, a mean depth of at least a third of average depth (--> x) and at most twice average depth (--> x). Then...
-## PCA and admixture
-## Fst analysis
+For determining population/subspecies differentiation, sites were filtered for a mean depth of at least a third of average depth (--> 10X) and at most twice average depth (--> 60X), and sites missing in more than 10% of samples (i.e 3 individuals) were removed.Then indels and multiallelic sites werer removed. HWE...
+For population structure analyses, monomorphic sites, sites with QUAL below 20 and minor allele frequency below 3% (i.e. singletons) were removed, and 3 individuals that were closely related to others were removed (full sibs and parents) (and one with poor depth).
+## Population structure
+For PCA and ADMIXTURE, SNPs were linkage pruned using Plink. The pruned set was then used for PCA with Plink. ADMIXTURE was then run for k=2,...,5
+## Population differentiation
+Hudson Fst, dxy and pi were determined in sliding windows from 10kb to 100kb using scripts by Simon Martin (https://github.com/simonhmartin/genomics_general).
+## Signatures of selection
