@@ -24,7 +24,7 @@ def random_subset(vcf_file, prefix, out_dir):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir):
+def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir, tmp_dir):
     """ Template for vcf stats on a subset of the data.
     Adapted from https://speciationgenomics.github.io/filtering_vcfs/
     """
@@ -40,36 +40,39 @@ def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir):
     options={
         'cores': 1,
         'memory': '4g',
-        'walltime': '1-00:00:00'
+        'walltime': '3-00:00:00'
     }
     spec = f'''
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
     # make random subset
-    # bcftools view {vcf_file} | vcfrandomsample -r {sampling_frq} > {out_dir}/{prefix}.subset.vcf
+    bcftools view {vcf_file} | vcfrandomsample -r {sampling_frq} > {tmp_dir}/{prefix}.subset.vcf
     # compress vcf
-    # bgzip {out_dir}/{prefix}.subset.vcf
+    bgzip {tmp_dir}/{prefix}.subset.vcf
     # index vcf
-    # bcftools index {out_dir}/{prefix}.subset.vcf.gz
+    bcftools index {tmp_dir}/{prefix}.subset.vcf.gz
 
     # calculate allele frequency (for sites with max 2 alleles)
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --freq2 --max-alleles 2 --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --freq2 --max-alleles 2 --out {out_dir}/{prefix}
     # mean depth of coverage per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --depth --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --depth --out {out_dir}/{prefix}
     # mean depth per site
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --site-mean-depth --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --site-mean-depth --out {out_dir}/{prefix}
     # site quality
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --site-quality --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --site-quality --out {out_dir}/{prefix}
+    # genotype quality
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --extract-FORMAT-info GQ --out {out_dir}/{prefix}
     # proportion of missing data per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --missing-indv --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --missing-indv --out {out_dir}/{prefix}
     # proportion of missing data per site
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --missing-site --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --missing-site --out {out_dir}/{prefix}
     # calculate heterozygosity and inbreeding coefficient per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --het --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --het --out {out_dir}/{prefix}
     # caculate relatedness
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --relatedness --out {out_dir}/{prefix}
+    vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --relatedness --out {out_dir}/{prefix}
     # Count the number of  variants (takes for ever! thus last)
     bcftools view -H {vcf_file} | wc -l > {out_dir}/{prefix}.allCounts
+    echo "END: $(date)"
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
@@ -100,6 +103,8 @@ def vcf_stats(vcf_file, prefix, out_dir):
     vcftools --gzvcf {vcf_file} --site-mean-depth --out {out_dir}/{prefix}
     # site quality
     vcftools --gzvcf {vcf_file} --site-quality --out {out_dir}/{prefix}
+    # genotype quality
+    vcftools --gzvcf {vcf_file} --extract-FORMAT-info GQ --out {out_dir}/{prefix}
     # proportion of missing data per individual
     vcftools --gzvcf {vcf_file} --missing-indv --out {out_dir}/{prefix}
     # proportion of missing data per site
@@ -137,15 +142,14 @@ def allele_filter(vcf_file, prefix, out_dir):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def quality_filter(vcf_file, prefix, out_dir, max_missing, min_DP, max_DP):
-    """ Template for filtering out sites passing basic best standart quality filters.
-    Because one sample is less deep but overall fine, don't filter genotype depth"""
+def quality_filter(vcf_file, prefix, out_dir, max_missing, min_DP, max_DP, min_ind_DP, max_ind_DP):
+    """ Template for filtering out sites passing basic best standart quality filters for depth and missing sites."""
     inputs = {'file': vcf_file}
     outputs = {'filtered_file': f'{out_dir}/{prefix}.filtered.vcf.gz'}
     options={
         'cores': 1,
         'memory': '4g',
-        'walltime': '36:00:00'
+        'walltime': '3-00:00:00'
     }
     spec = f'''
     echo "START: $(date)"
@@ -153,6 +157,7 @@ def quality_filter(vcf_file, prefix, out_dir, max_missing, min_DP, max_DP):
     vcftools --gzvcf {vcf_file} \\
     --max-missing {max_missing} \\
     --min-meanDP {min_DP} --max-meanDP {max_DP} \\
+    --minDP {min_ind_DP} --maxDP {max_ind_DP} \\
     --recode \\
     --stdout | bgzip -c > {out_dir}/{prefix}.filtered.vcf.gz
     '''
@@ -175,7 +180,7 @@ def bias_filter(vcf_file, prefix, out_dir, avgDP, qual_div_avgDP):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def HWE_filter(vcf_file, prefix, samples_list, temp_dir, out_dir, stat_dir):
+def HWE_filter(vcf_file, prefix, samples_list, temp_dir, out_dir):
     """ Template for getting samples of one population and removing sites that deviate from HWE within population.
     HWE filter will remove monomorphic sites, so split population vcf into variant and invariant sites first."""
     inputs = {'file': vcf_file}
@@ -190,7 +195,7 @@ def HWE_filter(vcf_file, prefix, samples_list, temp_dir, out_dir, stat_dir):
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
     # extract samples of one population
-    bfcftools view -s {samples_list} -Oz -o {temp_dir}/{prefix}.monobiallelic.vcf.gz {vcf_file}
+    bcftools view -s {samples_list} -Oz -o {temp_dir}/{prefix}.monobiallelic.vcf.gz {vcf_file}
 
     # extract invariant sites (i.e. minor allele frequency <= 0)
     vcftools --gzvcf {temp_dir}/{prefix}.monobiallelic.vcf.gz --max-maf 0 \\
@@ -207,5 +212,31 @@ def HWE_filter(vcf_file, prefix, samples_list, temp_dir, out_dir, stat_dir):
     # combine invariant and filtered variant sites again
     bcftools concat --allow-overlaps {temp_dir}/{prefix}.invariant.vcf.gz {temp_dir}/{prefix}.variant.HWE.vcf.gz \\
     -Oz -o {out_dir}/{prefix}.HWE.vcf.gz
+
+    # index final filtered vcf file
+    bcftools index --threads {options['cores']} {out_dir}/{prefix}.HWE.vcf.gz
+    echo "END: $(date)"
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+def merge_samples(vcf_listfile, vcf1, vcf2, vcf3, prefix, out_dir):
+    """ Template for merging multiple vcf files into one. Need to index if not.
+    Assumes that the samples in the different vcfs are non-overlapping."""
+    inputs = {'vcf_files_list': vcf_listfile}
+    outputs = {'merged_vcf': f'{out_dir}/{prefix}.merged.vcf.gz'}
+    options={
+        'cores': 4,
+        'memory': '4g',
+        'walltime': '24:00:00'
+    }
+    spec = f'''
+    echo "START: $(date)"
+    echo "JobID: $SLURM_JOBID"
+
+    bcftools index --threads {options['cores']} {vcf1}
+    bcftools index --threads {options['cores']} {vcf2}
+    bcftools index --threads {options['cores']} {vcf3}
+
+    bcftools merge -l {vcf_listfile} --threads {options['cores']} -W -Oz -o {out_dir}/{prefix}.merged.vcf.gz
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
