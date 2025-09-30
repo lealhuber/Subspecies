@@ -18,16 +18,59 @@ os.makedirs(stat_dir, exist_ok=True)
 os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
 
-vcf_filtered = 'path'
+vcf_qualfiltered = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_filtering/outputs/allpops.HWE.merged.vcf.gz'
+
+# make list of individuals to remove
+remove_ind = {'P1878_117','P1878_129','P1878_134','P1878_136'}
+with open (f'{log_dir}/remove_ind.txt', "w") as f:
+    for ind in remove_ind:
+        f.write(f'{ind}\n')
+
+# filter for SNPs of sufficient quality and MAF, and remove related individuals
+# maf of 0.03 is equvalent to removing alleles that only occur once in one copy (roughly) in my 30 inds
+filter_snp = gwf.target_from_template(
+    name = 'filter_snps',
+    template=snp_filter(
+        vcf_file=vcf_qualfiltered,
+        ind_file=f'{log_dir}/remove_ind.txt',
+        MAF=0.03,
+        minQ=30,
+        prefix='qualfiltered',
+        out_dir=temp_dir
+        )
+    )
+
+# check what snp filtering did
+stat_postSNP = gwf.target_from_template(
+    name = 'get_stats_SNPfilter',
+    template=vcf_stats_subset(
+        vcf_file=filter_snp.outputs['filtered_vcf'],
+        sampling_frq=0.1,
+        prefix='post_allelefilter',
+        out_dir=stat_dir
+        )
+    )
 
 # do LD pruning and PCA
-LD_PCA = gwf.target_from_template(
-    name = 'PCA_all',
+ld_pca = gwf.target_from_template(
+    name = 'PCA_relrem',
     template = PCA(
-        vcf_file=vcf_filtered,
+        vcf_file=filter_snp.outputs['filtered_vcf'],
         prefix='pca_all',
         temp_dir=temp_dir,
         out_dir=output_dir
         )
     )
+
+# run ADMIXTURE for K=2-5
+Admixture = gwf.target_from_template(
+    name = 'Admixture',
+    template = admixture(
+        bed_file='/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/pop_structure/outputs/pca_all.bed',
+        bim_file='/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/pop_structure/outputs/pca_all.bim',
+        prefix='admixture_apt1',
+        tmp_dir=temp_dir,
+        out_dir=output_dir
+    )
+)
 
