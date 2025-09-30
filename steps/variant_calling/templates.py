@@ -109,8 +109,8 @@ def freebayes_CHR_vcf(files: list, reference_genome: str, population_match, temp
     outputs={'genome_chr_vcf': temp_path + output_name}
     options={
     'cores': 1,
-    'memory': '64g',
-    'walltime': '1-00:00:00'
+    'memory': '180g',
+    'walltime': '3-00:00:00'
     }
     spec="""
 	echo "START: $(date)"
@@ -157,7 +157,7 @@ def Sort_vcf(vcf: str, species_name: str, path: str, samples: list):
     outputs={'sorted_genome_vcf': output_file}
     options={
     'cores': 1,
-    'memory': '16g',
+    'memory': '32g',
     'walltime': '1-00:00:00'
     }
     spec="""
