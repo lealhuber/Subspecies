@@ -9,10 +9,9 @@ First I removed adapters and trimmed reads using TrimGalore, discarding reads wi
 ## Variant calling
 Joint calling with Nathalies script. It splits into scaffolds and the scaffolds into 1 MB chunks and then calls variants with freebayes, also keeping monomorphic sites. I discarded scaffolds that are shorter than 1000 bp here (accounting to 0.16% of the genome) The --populations option was used to inform freebayes of subspecies membership. The population-based bayesian inference model is thus partitioned on the basis of the populations. Then the vcf files were concatenated into one file for statistics and filtering.
 ## Variant filtering
-For determining population/subspecies differentiation, sites were filtered for a mean depth of at least a third of average depth (--> 10X) and at most twice average depth (--> 60X), and sites missing in more than 10% of samples (i.e 3 individuals) were removed.Then indels and multiallelic sites werer removed. HWE...
+For determining population/subspecies differentiation, sites were filtered for a mean depth of at least a third of average depth (--> 10X) and at most twice average depth (--> 60X), and sites missing in more than 10% of samples (i.e 3 individuals) were removed. Then indels and multiallelic sites werer removed. (Sites out of HWE with p < 0.01 were determined separately for each subspecies and removed. Or maybe not.)
 For population structure analyses, monomorphic sites, sites with QUAL below 20 and minor allele frequency below 3% (i.e. singletons) were removed, and 3 individuals that were closely related to others were removed (full sibs and parents) (and one with poor depth).
 ## Population structure
 For PCA and ADMIXTURE, SNPs were linkage pruned using Plink. The pruned set was then used for PCA with Plink. ADMIXTURE was then run for k=2,...,5
 ## Population differentiation
-Hudson Fst, dxy and pi were determined in sliding windows from 10kb to 100kb using scripts by Simon Martin (https://github.com/simonhmartin/genomics_general).
-## Signatures of selection
+Hudson Fst, dxy and pi were determined in sliding windows from 10kb to 100kb using scripts by Simon Martin (https://github.com/simonhmartin/genomics_general). For targeted analyses, the option --windCoords with the regions of interest containing the genes from the gene expression analysis was used.
