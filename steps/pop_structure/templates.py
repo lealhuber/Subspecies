@@ -29,7 +29,7 @@ def snp_filter(vcf_file, ind_file, MAF, minQ, prefix, out_dir):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir):
+def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir, temp_dir):
     """ Template for vcf stats on a subset of the data.
     Adapted from https://speciationgenomics.github.io/filtering_vcfs/
     """
@@ -50,33 +50,35 @@ def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir):
     spec = f'''
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
+    # overall stats
+    bcftools stats {vcf_file} > {out_dir}/{prefix}.stats
+    
     # make random subset
-    bcftools view {vcf_file} | vcfrandomsample -r {sampling_frq} > {out_dir}/{prefix}.subset.vcf
+    bcftools view {vcf_file} | vcfrandomsample -r {sampling_frq} > {temp_dir}/{prefix}.subset.vcf
     # compress vcf
-    bgzip {out_dir}/{prefix}.subset.vcf
+    bgzip {temp_dir}/{prefix}.subset.vcf
     # index vcf
-    bcftools index {out_dir}/{prefix}.subset.vcf.gz
+    bcftools index {temp_dir}/{prefix}.subset.vcf.gz
 
     # calculate allele frequency (for sites with max 2 alleles)
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --freq2 --max-alleles 2 --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --freq2 --max-alleles 2 --out {out_dir}/{prefix}
     # mean depth of coverage per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --depth --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --depth --out {out_dir}/{prefix}
     # mean depth per site
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --site-mean-depth --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --site-mean-depth --out {out_dir}/{prefix}
     # site quality
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --site-quality --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --site-quality --out {out_dir}/{prefix}
     # genotype quality
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --extract-FORMAT-info GQ --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --extract-FORMAT-info GQ --out {out_dir}/{prefix}
     # proportion of missing data per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --missing-indv --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --missing-indv --out {out_dir}/{prefix}
     # proportion of missing data per site
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --missing-site --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --missing-site --out {out_dir}/{prefix}
     # calculate heterozygosity and inbreeding coefficient per individual
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --het --out {out_dir}/{prefix}
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --het --out {out_dir}/{prefix}
     # caculate relatedness
-    vcftools --gzvcf {out_dir}/{prefix}.subset.vcf.gz --relatedness --out {out_dir}/{prefix}
-    # Count the number of  variants (takes for ever!)
-    bcftools view -H {vcf_file} | wc -l > {out_dir}/{prefix}.allCounts
+    vcftools --gzvcf {temp_dir}/{prefix}.subset.vcf.gz --relatedness --out {out_dir}/{prefix}
+    echo "END: $(date)"
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
@@ -115,12 +117,12 @@ def admixture(bed_file, bim_file, prefix, tmp_dir, out_dir):
     options={
         'cores': 1,
         'memory': '16g',
-        'walltime': '24:00:00'
+        'walltime': '01:00:00'
     }
     spec = f'''
     echo "START: $(date)"
     echo "JobID: $SLURM_JOBID"
-    ADMIXTURE does not accept chromosome names that are not human chromosomes. We will thus just exchange the first column by 0
+    # ADMIXTURE does not accept chromosome names that are not human chromosomes. We will thus just exchange the first column by 0
     awk '{{$1="0";print $0}}' {bim_file} > {bim_file}.tmp
     mv {bim_file}.tmp {bim_file}
     for i in {{2..5}}
@@ -133,4 +135,30 @@ def admixture(bed_file, bim_file, prefix, tmp_dir, out_dir):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-
+def removed_sites(original_vcf, filtered_vcf_file, prefix, out_dir):
+    """ Template for getting a vcf file with the removed sites after filtering."""
+    inputs = {'org_file': original_vcf,
+              'filtered_file': filtered_vcf_file}
+    outputs = {'removed_sites_vcf': f'{out_dir}/{prefix}.removed_sites.vcf.gz'}
+    options={
+        'cores': 1,
+        'memory': '4g',
+        'walltime': '10:00:00'
+    }
+    spec = f'''
+    echo "START: $(date)"
+    echo "JobID: $SLURM_JOBID"
+    # check if filtered vcf is indexed, if not index it
+    if [ ! -f {filtered_vcf_file}.csi ]; then
+        bcftools index --threads {options['cores']} {filtered_vcf_file}
+    fi
+    # also have to index original vcf if not indexed
+    if [ ! -f {original_vcf}.csi ]; then
+        bcftools index --threads {options['cores']} {original_vcf}
+    fi
+    # compare original and filtered vcf to get removed sites
+    bcftools isec -C {original_vcf} {filtered_vcf_file} -Oz -o {out_dir}/{prefix}.removed_sites.vcf.gz
+    echo "END: $(date)"
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    

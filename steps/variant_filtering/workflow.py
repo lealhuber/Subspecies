@@ -164,7 +164,7 @@ stat_HWE_black = gwf.target_from_template(
     name = 'black_HWE_stats',
     template=vcf_stats_subset(
         vcf_file=HWE_black.outputs['filtered_file'],
-        sampling_frq=0.05,
+        sampling_frq=0.02,
         prefix='Black_post_HWE',
         out_dir=stat_dir,
         tmp_dir=temp_dir
@@ -175,7 +175,7 @@ stat_HWE_blue = gwf.target_from_template(
     name = 'blue_HWE_stats',
     template=vcf_stats_subset(
         vcf_file=HWE_blue.outputs['filtered_file'],
-        sampling_frq=0.05,
+        sampling_frq=0.02,
         prefix='Blue_post_HWE',
         out_dir=stat_dir,
         tmp_dir=temp_dir
@@ -186,7 +186,7 @@ stat_HWE_red = gwf.target_from_template(
     name = 'red_HWE_stats',
     template=vcf_stats_subset(
         vcf_file=HWE_red.outputs['filtered_file'],
-        sampling_frq=0.05,
+        sampling_frq=0.02,
         prefix='Red_post_HWE',
         out_dir=stat_dir,
         tmp_dir=temp_dir
@@ -208,6 +208,61 @@ merge_vcfs = gwf.target_from_template(
         vcf2=HWE_blue.outputs['filtered_file'],
         vcf3=HWE_red.outputs['filtered_file'],
         prefix='allpops.HWE',
-        out_dir=temp_dir
+        out_dir=output_dir,
+        )
+    )
+
+
+## find out what sites I removed
+# what did depth/quality filtering reomove?
+out_sites_depth = gwf.target_from_template(
+    name = 'find_baddepth_sites',
+    template=removed_sites(
+        original_vcf=vcf_all,
+        filtered_vcf_file=filter_qual.outputs['filtered_file'],
+        prefix='qual_depth',
+        out_dir=output_dir,
+        )
+    )
+# what did allele filtering remove?
+out_sites_allele = gwf.target_from_template(
+    name = 'find_indel_multi_sites',
+    template=removed_sites(
+        original_vcf=vcf_all,
+        filtered_vcf_file=filter_multiallelic.outputs['filtered_file'],
+        prefix='indel_multiallelic',
+        out_dir=output_dir,
+        )
+    )
+# here I kept the original vcf file as comparison because I want to see all indels and multiallelics
+# not just the good quality/depth ones
+
+# what did HWE filtering remove?
+# for each subspecies
+out_sites_HWE_black = gwf.target_from_template(
+    name = 'find_black_HWE_sites',
+    template=removed_sites(
+        original_vcf=filter_multiallelic.outputs['filtered_file'],
+        filtered_vcf_file=HWE_black.outputs['filtered_file'],
+        prefix='black_HWE',
+        out_dir=output_dir,
+        )
+    )
+out_sites_HWE_blue = gwf.target_from_template(
+    name = 'find_blue_HWE_sites',
+    template=removed_sites(
+        original_vcf=filter_multiallelic.outputs['filtered_file'],
+        filtered_vcf_file=HWE_blue.outputs['filtered_file'],
+        prefix='blue_HWE',
+        out_dir=output_dir,
+        )
+    )
+out_sites_HWE_red = gwf.target_from_template(
+    name = 'find_red_HWE_sites',
+    template=removed_sites(
+        original_vcf=filter_multiallelic.outputs['filtered_file'],
+        filtered_vcf_file=HWE_red.outputs['filtered_file'],
+        prefix='red_HWE',
+        out_dir=output_dir,
         )
     )

@@ -70,8 +70,8 @@ def vcf_stats_subset(vcf_file, sampling_frq, prefix, out_dir, tmp_dir):
     vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --het --out {out_dir}/{prefix}
     # caculate relatedness
     vcftools --gzvcf {tmp_dir}/{prefix}.subset.vcf.gz --relatedness --out {out_dir}/{prefix}
-    # Count the number of  variants (takes for ever! thus last)
-    bcftools view -H {vcf_file} | wc -l > {out_dir}/{prefix}.allCounts
+    # overall stats
+    bcftools stats {vcf_file} > {out_dir}/{prefix}.stats
     echo "END: $(date)"
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
@@ -232,11 +232,51 @@ def merge_samples(vcf_listfile, vcf1, vcf2, vcf3, prefix, out_dir):
     spec = f'''
     echo "START: $(date)"
     echo "JobID: $SLURM_JOBID"
+    # index vcfs if not already indexed
+    if [ ! -f {vcf1}.csi ]; then
+        bcftools index --threads {options['cores']} {vcf1}
+    fi
+    if [ ! -f {vcf2}.csi ]; then
+        bcftools index --threads {options['cores']} {vcf2}
+    fi
+    if [ ! -f {vcf3}.csi ]; then
+        bcftools index --threads {options['cores']} {vcf3}
+    fi
 
-    bcftools index --threads {options['cores']} {vcf1}
-    bcftools index --threads {options['cores']} {vcf2}
-    bcftools index --threads {options['cores']} {vcf3}
-
-    bcftools merge -l {vcf_listfile} --threads {options['cores']} -W -Oz -o {out_dir}/{prefix}.merged.vcf.gz
+    # merge vcfs
+    if [ ! -f {out_dir}/{prefix}.merged.vcf.gz ]; then
+        bcftools merge -l {vcf_listfile} --threads {options['cores']} -W -Oz -o {out_dir}/{prefix}.merged.vcf.gz
+    fi
+    # index merged vcf
+    bcftools index --threads {options['cores']} {out_dir}/{prefix}.merged.vcf.gz
+    echo "END: $(date)"
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+
+def removed_sites(original_vcf, filtered_vcf_file, prefix, out_dir):
+    """ Template for getting a vcf file with the removed sites after filtering."""
+    inputs = {'org_file': original_vcf,
+              'filtered_file': filtered_vcf_file}
+    outputs = {'removed_sites_vcf': f'{out_dir}/{prefix}.removed_sites.vcf.gz'}
+    options={
+        'cores': 1,
+        'memory': '4g',
+        'walltime': '10:00:00'
+    }
+    spec = f'''
+    echo "START: $(date)"
+    echo "JobID: $SLURM_JOBID"
+    # check if filtered vcf is indexed, if not index it
+    if [ ! -f {filtered_vcf_file}.csi ]; then
+        bcftools index --threads {options['cores']} {filtered_vcf_file}
+    fi
+    # also have to index original vcf if not indexed
+    if [ ! -f {original_vcf}.csi ]; then
+        bcftools index --threads {options['cores']} {original_vcf}
+    fi
+    # compare original and filtered vcf to get removed sites
+    bcftools isec -C {original_vcf} {filtered_vcf_file} -Oz -o {out_dir}/{prefix}.removed_sites.vcf.gz
+    echo "END: $(date)"
+    '''
+    return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
+    
