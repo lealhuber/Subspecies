@@ -4,7 +4,7 @@ import os
 
 
 # definition for making file with regions of interest from gtf and list of gene names
-def get_regions(gtf, genesOI, output_dir):
+def get_regions(gtf, genesOI, add_bp, output_dir):
     """Make file with columns scaffold, start, end from gtf and genesOI"""
     inputs = [gtf, genesOI]
     outputs = {'regions_file': f'{output_dir}/regions_of_interest.txt'}
@@ -17,12 +17,20 @@ def get_regions(gtf, genesOI, output_dir):
     spec = f'''
     # plain GTF file (gene name is plain in column 9)
     awk 'NR==FNR {{ g[$1]=1; next }}
+    # only need the rows that are genes in gtf
      $3=="gene" {{
        name=$9
        # remove anything after a semicolon (in case attributes present) and trim whitespace
        sub(/;.*/,"",name)
        gsub(/^[[:space:]]+|[[:space:]]+$/,"",name)
-       if (name in g) print $1 "\t" $4 "\t" $5
+       # check if name is in genesOI
+       if (name in g) {{
+        # calculate start and end with added bp, ensuring start is at least 1
+         s = $4 - {add_bp}
+         if (s < 1) s = 1
+         e = $5 + {add_bp}
+         print $1 "\\t" s "\\t" e
+       }}
      }}' {genesOI} {gtf} > {output_dir}/regions_of_interest.txt
     '''
     return AnonymousTarget(inputs=inputs,outputs=outputs,options=options,spec=spec) 
@@ -30,7 +38,7 @@ def get_regions(gtf, genesOI, output_dir):
 def pop_stats(vcf_file, script_path, regions_file, pops_file, prefix, temp_dir, output_dir):
     """Calculate population statistics for given regions"""
     inputs = [vcf_file, regions_file]
-    outputs = {'stats_file': f'{output_dir}/regionsOI_fst.csv.gz'}
+    outputs = {'stats_file': f'{output_dir}/{prefix}.regionsOI_fst.csv.gz'}
     options = {
         'cores': 4,
         'memory': '8g',

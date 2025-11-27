@@ -29,6 +29,7 @@ gene_regions = gwf.target_from_template(
     template=get_regions(
         gtf=ostrich_gtf,
         genesOI=genesOI,
+        add_bp=1000,
         output_dir=temp_dir
         )
     )
