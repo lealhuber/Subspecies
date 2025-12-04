@@ -54,7 +54,7 @@ filter_qual = gwf.target_from_template(
         )
     )
 
-# check what quality filtering did
+# check what depth filtering did
 # it won't remove much so do it on small subset again
 
 stat_postqual = gwf.target_from_template(
@@ -121,16 +121,16 @@ stat_postallele = gwf.target_from_template(
 
 
 # split file into populations for Hardy-Weinberg filter
-# but without the mixed individuals they will mess it up (133 and 122)
+# but without the mixed and the related individuals they will mess it up (133 and 122)
 blacksamples = "P1878_107,P1878_108,P1878_109,P1878_110,P1878_111,P1878_112,P1878_113,P1878_114,P1878_115,P1878_116"
-bluesamples = "P1878_117,P1878_118,P1878_119,P1878_120,P1878_121,P1878_123,P1878_124,P1878_125,P1878_126"
-redsamples = "P1878_127,P1878_128,P1878_129,P1878_130,P1878_131,P1878_132,P1878_134,P1878_135,P1878_136"
+bluesamples = "P1878_118,P1878_119,P1878_120,P1878_121,P1878_123,P1878_124,P1878_125,P1878_126"
+redsamples = "P1878_127,P1878_128,P1878_130,P1878_131,P1878_132,P1878_135"
 
 HWE_black = gwf.target_from_template(
     name = 'black_HWE',
     template=HWE_filter(
         vcf_file=filter_multiallelic.outputs['filtered_file'],
-        prefix='black',
+        prefix='black.norel',
         samples_list=blacksamples,
         temp_dir=temp_dir,
         out_dir=output_dir
@@ -141,7 +141,7 @@ HWE_blue = gwf.target_from_template(
     name = 'blue_HWE',
     template=HWE_filter(
         vcf_file=filter_multiallelic.outputs['filtered_file'],
-        prefix='blue',
+        prefix='blue.norel',
         samples_list=bluesamples,
         temp_dir=temp_dir,
         out_dir=output_dir
@@ -152,7 +152,7 @@ HWE_red = gwf.target_from_template(
     name = 'red_HWE',
     template=HWE_filter(
         vcf_file=filter_multiallelic.outputs['filtered_file'],
-        prefix='red',
+        prefix='red.norel',
         samples_list=redsamples,
         temp_dir=temp_dir,
         out_dir=output_dir
@@ -165,7 +165,7 @@ stat_HWE_black = gwf.target_from_template(
     template=vcf_stats_subset(
         vcf_file=HWE_black.outputs['filtered_file'],
         sampling_frq=0.02,
-        prefix='Black_post_HWE',
+        prefix='Black_post_HWE2',
         out_dir=stat_dir,
         tmp_dir=temp_dir
         )
@@ -176,7 +176,7 @@ stat_HWE_blue = gwf.target_from_template(
     template=vcf_stats_subset(
         vcf_file=HWE_blue.outputs['filtered_file'],
         sampling_frq=0.02,
-        prefix='Blue_post_HWE',
+        prefix='Blue_post_HWE2',
         out_dir=stat_dir,
         tmp_dir=temp_dir
         )
@@ -187,7 +187,7 @@ stat_HWE_red = gwf.target_from_template(
     template=vcf_stats_subset(
         vcf_file=HWE_red.outputs['filtered_file'],
         sampling_frq=0.02,
-        prefix='Red_post_HWE',
+        prefix='Red_post_HWE2',
         out_dir=stat_dir,
         tmp_dir=temp_dir
         )
@@ -207,7 +207,7 @@ merge_vcfs = gwf.target_from_template(
         vcf1=HWE_black.outputs['filtered_file'], # because I forgot the indexing earlier
         vcf2=HWE_blue.outputs['filtered_file'],
         vcf3=HWE_red.outputs['filtered_file'],
-        prefix='allpops.HWE',
+        prefix='allpops.HWE2',
         out_dir=output_dir,
         )
     )
@@ -244,7 +244,7 @@ out_sites_HWE_black = gwf.target_from_template(
     template=removed_sites(
         original_vcf=filter_multiallelic.outputs['filtered_file'],
         filtered_vcf_file=HWE_black.outputs['filtered_file'],
-        prefix='black_HWE',
+        prefix='black_HWE2',
         out_dir=output_dir,
         )
     )
@@ -253,7 +253,7 @@ out_sites_HWE_blue = gwf.target_from_template(
     template=removed_sites(
         original_vcf=filter_multiallelic.outputs['filtered_file'],
         filtered_vcf_file=HWE_blue.outputs['filtered_file'],
-        prefix='blue_HWE',
+        prefix='blue_HWE2',
         out_dir=output_dir,
         )
     )
@@ -262,7 +262,7 @@ out_sites_HWE_red = gwf.target_from_template(
     template=removed_sites(
         original_vcf=filter_multiallelic.outputs['filtered_file'],
         filtered_vcf_file=HWE_red.outputs['filtered_file'],
-        prefix='red_HWE',
+        prefix='red_HWE2',
         out_dir=output_dir,
         )
     )
