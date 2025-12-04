@@ -30,23 +30,31 @@ gene_regions = gwf.target_from_template(
         gtf=ostrich_gtf,
         genesOI=genesOI,
         add_bp=1000,
+        prefix="regionsOI",
         output_dir=temp_dir
         )
     )
 
 ### calculate population statistics for regions of interest
-vcf_file = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_filtering/outputs/mtt.filtered.monobiallelic.snp.vcf.gz'
+vcf_file = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/variant_filtering/outputs/allpops.HWE.merged.vcf.gz'
 pops_file = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/targeted_fst/populations_file.txt'
 script_path = '/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/fst/scripts/simonmartin_genomics'
+# make geno file name on basis of vcf prefix
+geno_name = re.sub(r'.*/', '', vcf_file)  # remove path
+geno_name = re.sub(r'\.vcf\.gz$', '', geno_name)  # remove .vcf.gz
+print(f'geno_name: {geno_name}') # check
+print(f'regions file: {gene_regions.outputs["regions_file"]}') # check
 
 pop_stats_targeted = gwf.target_from_template(
     name = 'pop_stats_targeted_fst',
     template=pop_stats(
         vcf_file=vcf_file,
+        snp_vcf='/faststorage/project/ostrich_thermal/people/leah/Subspecies/steps/pop_structure/temp/indfiltered.qualfiltered.HWE.biallelic.snp.vcf.gz',
         script_path=script_path,
-        regions_file=gene_regions.outputs['regions_file'],
+        regions_file=gene_regions.outputs["regions_file"],
         pops_file=pops_file,
-        prefix='all_cat_genes',
+        prefix='monobiallelic.HWE',
+        geno_prefix=geno_name,
         temp_dir=temp_dir,
         output_dir=output_dir
         )
