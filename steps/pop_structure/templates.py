@@ -7,7 +7,7 @@ import os
 # Secondly PCA and ADMIXTURE assume independence of sites, so I will do LD pruning using plink.
 # Because of this I will also remove related individuals during the filtering step.
 
-def snp_filter(vcf_file, ind_file, MAF, minQ, prefix, out_dir):
+def snp_filter(vcf_file, ind_file, MAC, minQ, prefix, out_dir):
     """Template for removing invariant sites and certain individuals from already filtered vcf file
     (multiallelic sites and indels should already have been removed and basic quality filtering done)"""
     inputs = {'vcf': vcf_file,
@@ -22,7 +22,7 @@ def snp_filter(vcf_file, ind_file, MAF, minQ, prefix, out_dir):
     echo "START: $(date)"
 	echo "JobID: $SLURM_JOBID"
     vcftools --gzvcf {vcf_file} \\
-    --min-alleles 2 --maf {MAF} --minQ {minQ} \\
+    --min-alleles 2 --mac {MAC} --minQ {minQ} \\
     --remove {ind_file} \\
     --recode --recode-INFO-all \\
     --stdout | bgzip -c > {out_dir}/{prefix}.biallelic.snp.vcf.gz
@@ -89,7 +89,9 @@ def PCA(vcf_file, prefix, temp_dir, out_dir):
     inputs = {'file': vcf_file}
     outputs = {'Pruning_output': [f'{temp_dir}/{prefix}.prune.in',f'{temp_dir}/{prefix}.prune.out'],
                'PCA_output': [f'{out_dir}/{prefix}.eigenvec', f'{out_dir}/{prefix}.eigenval'],
-               'Plink_bed': [f'{out_dir}/{prefix}.bed', f'{out_dir}/{prefix}.bim', f'{out_dir}/{prefix}.fam']}
+               'Plink_bed': f'{out_dir}/{prefix}.bed',
+               'Plink_bim': f'{out_dir}/{prefix}.bim',
+               'Fam': f'{out_dir}/{prefix}.fam'}
     options={
         'cores': 1,
         'memory': '4g',
@@ -109,7 +111,7 @@ def PCA(vcf_file, prefix, temp_dir, out_dir):
     '''
     return AnonymousTarget(inputs=inputs, outputs=outputs, options=options, spec=spec)
 
-def admixture(bed_file, bim_file, prefix, tmp_dir, out_dir):
+def admixture(bed_file, bim_file, prefix, tmp_dir):
     """ Template for running admixture on bed files. Fix output names!"""
     inputs = {'bed': bed_file,
               'bim': bim_file}
