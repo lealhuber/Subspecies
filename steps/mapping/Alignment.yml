@@ -1,0 +1,16 @@
+name: Alignment
+channels:
+  - gwforg
+  - conda-forge
+  - bioconda
+  - genomedk
+dependencies:
+  - bwa
+  - trim-galore
+  - numpy
+  - multiqc
+  - gwf
+  - samtools
+  - qualimap
+  - bcftools
+prefix: /home/leahuber/miniforge3/envs/Alignment

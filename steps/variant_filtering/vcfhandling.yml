@@ -1,0 +1,18 @@
+name: vcfhandling
+channels:
+  - gwforg
+  - conda-forge
+  - bioconda
+  - genomedk
+dependencies:
+  - bcftools
+  - vcftools
+  - gwf
+  - anaconda::numpy
+  - vcflib
+  - bioconda::plink
+  - bioconda::admixture
+  - conda-forge::matplotlib
+  - bioconda::bedtools
+  - python
+prefix: /home/leahuber/miniforge3/envs/vcfhandling

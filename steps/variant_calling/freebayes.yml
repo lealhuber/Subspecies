@@ -1,0 +1,15 @@
+name: freebayes
+channels:
+  - gwforg
+  - conda-forge
+  - bioconda
+  - genomedk
+dependencies:
+  - bcftools
+  - freebayes=1.3.6
+  - gwf
+  - multiqc
+  - samtools
+  - vcftools
+  - conda-forge::matplotlib
+prefix: /home/leahuber/miniforge3/envs/freebayes
