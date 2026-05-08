@@ -1,0 +1,466 @@
+---
+title: "Variant filtering"
+author: "Lea Huber"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+library(tidyverse)
+library(ggpubr)
+library(reshape2)
+```
+
+# Initial stats 
+
+The following statistics are based on a random 1% sample of the data.  
+
+```{r load initial data, include=FALSE}
+datdir = "/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/QC/VCFstats/"
+popcols = c("black","blue","red")
+var_qual <- read_delim(paste0(datdir,"pre_filter.mtt.lqual"), delim = "\t",
+                       col_names = c("chr", "pos", "qual"), skip = 1)
+var_depth <- read_delim(paste0(datdir,"pre_filter.mtt.ldepth.mean"), delim = "\t",
+                        col_names = c("chr", "pos", "mean_depth", "var_depth"), skip = 1)
+var_miss_all <- read_delim(paste0(datdir,"pre_filter.mtt.lmiss"), delim = "\t",
+                       col_names = c("chr", "pos", "nchr", "nfiltered", "nmiss", "fmiss"), skip = 1)
+ind_depth <- read_delim(paste0(datdir,"pre_filter.mtt.idepth"), delim = "\t",
+                        col_names = c("ind", "nsites", "depth"), skip = 1)
+ind_miss  <- read_delim(paste0(datdir,"pre_filter.mtt.imiss"), delim = "\t",
+                        col_names = c("ind", "ndata", "nfiltered", "nmiss", "fmiss"), skip = 1)
+```
+
+### Variant based statistics
+
+The QUAL field in the vcf file tells us how much confidence do we have in our variant calls. More specifically, QUAL tells us how confident we are that there is some kind of variation at a given site (column in VCF). Thus it is normal that the quality is 0 at invariant sites.  
+
+```{r ini variant quality}
+summary(var_qual)
+ggplot(var_qual, aes(qual)) +
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 10) +
+  xlim(NA,1000)+
+  theme_pubr()
+```
+
+Because most sites are invariant most sites have a quality of 0. I will not filter on QUAL for the population differentiation analyses that require invariant sites (important to distinguish from missing sites). For the same reason I will not filter on minor allele frequency (MAF) for population differentiation analyses (because MAF at invariant sites is 0).
+
+Next we look at mean variant depth, that is the mean of the number of reads that mapped to a position across individuals (for both alleles).  
+
+```{r ini variant depth}
+summary(var_depth)
+ggplot(var_depth, aes(mean_depth))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  xlim(c(0,100))+
+  geom_vline(xintercept = 10)+ geom_vline(xintercept = 60)+
+  theme_pubr()
+length(which(var_depth$mean_depth<10))/nrow(var_depth)*100 # 0.47 % filtered out
+length(which(var_depth$mean_depth>60))/nrow(var_depth)*100 # 0.13 % filtered out
+```
+
+The mean depth is about 30X. Removing all sites that are more than twice that (>60X) or less than a third of that (<10X) is advised and will lead to about 0.6% of sites to be filtered out.  
+
+Next we look at variant missingness, that is how many individuals lack genotype call at each site.  
+
+```{r ini variants missing}
+summary(var_miss_all)
+ggplot(var_miss_all, aes(nmiss))+
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 30)+
+  theme_pubr()
+length(which(var_miss_all$fmiss>0.1))/nrow(var_miss_all)*100
+```
+
+Most sites have data from all 30 individuals and very few sites are missing data from many individuals. I will allow sites with data from 10% or less of individuals to be missing, that is 3 individuals, by setting --max-missing to 0.9. This will filter out about 0.28% of sites.  
+
+
+
+### Individual based statistics
+
+Below is the sequencing depth per individual.  
+
+```{r ini individual depth}
+summary(ind_depth)
+ind_depth$subsp <- c(rep("black",10), rep("blue",10), rep("red",10))
+ggplot(ind_depth, aes(depth, fill = subsp)) +
+  geom_histogram(colour = "black", alpha = 0.8) +
+  scale_fill_manual(values = popcols)+
+  theme_pubr()
+```
+
+We see that two individuals have quite lower depth than the others. An average of 9X will still be enough for some analyses however, so I will not filter as strictly for depth of individual genotypes as I did for overall mean site depth. So for the lower genotype depth threshold I will go with a third of the lowest individual depth, i.e. 3X and double the highest individual mean depth, i.e. 80X.  
+
+Next we look at the amount of missing sites per individual.  
+
+```{r ini individual missing sites}
+summary(ind_miss)
+ggplot(ind_miss, aes(fmiss)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3) + theme_pubr(base_size = 15)
+ind_stats <- left_join(ind_depth, subset(ind_miss, select = c(ind,nmiss,fmiss)))
+ind_stats$sex <- rep(c(rep("M",5),rep("F",5)),3)
+ggplot(ind_stats, aes(x = depth, y = fmiss, colour = sex))+
+  geom_point()+
+  #scale_color_manual(values = popcols)+
+  theme_pubr(base_size = 15)
+```
+
+Apparently a lot of the W chromosome was in those small scaffolds I removed, as now the difference of missing sites between males and females is not so big any more. Some however is still there, see the little bump in the upper plot at 0.0023 proportion of missing sites in some individuals. The missing sites filter will remove the rest of the W chromosome as it is missing in all males. I will decide later what to do with the Z chromosome if I even find it. Unsurprisingly individual 120 has more missing sites than the others because of its lower depth, but still very little.    
+
+# Stats after depth, missingness and indel filtering 
+
+Here again, the statistics are based on a random 1% sample of the data.  
+
+```{r load qual stats data, include=FALSE}
+datdir = "/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/QC/VCFstats/"
+popcols = c("black","blue","red")
+var_qual <- read_delim(paste0(datdir,"post_allelefilter.mtt.lqual"), delim = "\t",
+                       col_names = c("chr", "pos", "qual"), skip = 1)
+var_depth <- read_delim(paste0(datdir,"post_allelefilter.mtt.ldepth.mean"), delim = "\t",
+                        col_names = c("chr", "pos", "mean_depth", "var_depth"), skip = 1)
+var_miss_all <- read_delim(paste0(datdir,"post_allelefilter.mtt.lmiss"), delim = "\t",
+                       col_names = c("chr", "pos", "nchr", "nfiltered", "nmiss", "fmiss"), skip = 1)
+ind_depth <- read_delim(paste0(datdir,"post_allelefilter.mtt.idepth"), delim = "\t",
+                        col_names = c("ind", "nsites", "depth"), skip = 1)
+ind_miss  <- read_delim(paste0(datdir,"post_allelefilter.mtt.imiss"), delim = "\t",
+                        col_names = c("ind", "ndata", "nfiltered", "nmiss", "fmiss"), skip = 1)
+var_freq <- read_delim(paste0(datdir,"post_allelefilter.mtt.frq"), delim = "\t",
+                       col_names = c("chr", "pos", "nalleles", "nchr", "a1", "a2"), skip = 1)
+ind_het <- read_delim(paste0(datdir,"post_allelefilter.mtt.het"), delim = "\t",
+                     col_names = c("ind","ho", "he", "nsites", "f"), skip = 1)
+relatedness <- read_delim(paste0(datdir,"post_allelefilter.mtt.relatedness"), delim = "\t",
+                          col_names = c("ind1","ind2","Ajk"), skip = 1)
+var_GQ <- read_delim(paste0(datdir,"post_allelefilter.mtt.GQ.FORMAT"), delim = "\t",
+                          col_names = c("chr", "pos", ind_depth$ind),
+                     col_types = paste0(c("c",rep("i",31)), collapse = ""), skip = 1)
+```
+
+### Variant statistics
+
+I filtered for depth and site missingness and removed indels and multi allelic sites, so here are the results of that.   
+
+```{r postqual variant depth}
+summary(var_depth)
+ggplot(var_depth, aes(mean_depth))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+```
+
+We see that the minimal and maximal mean depth is as specified, 10X and 60X specifically, while certain variants are still above or below that (even though I specified 80X as maximum?!).
+
+Next we look at the genotype qualities. It seems like most sites have genotypes of quality 99, which is good. But there are also quite a few missing values, especially for 120, so it's probably missing genotypes.  
+
+```{r postqual genotype quality}
+summary(var_GQ)
+var_GQ_sub <- var_GQ[seq(1,nrow(var_GQ),10),] # make subsample for melting as it is too big apparently
+var_GQ_sub$chr_pos <- paste(var_GQ_sub$chr, var_GQ_sub$pos, sep = "_")
+var_GQ_melt <- melt(var_GQ_sub[3:33], value.name = "GQ")
+
+```
+
+Next we look at missing variants, where I specified a maximum of 0.1 of sites allowed to be missing across individuals, which is in maximum 3 individuals.  
+
+```{r postqual variants missing}
+summary(var_miss_all)
+ggplot(var_miss_all, aes(fmiss))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+ggplot(var_miss_all, aes(nmiss))+
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 30)+
+  theme_pubr()
+length(which(var_miss_all$fmiss>0.1))/nrow(var_miss_all)*100
+```
+
+It's not a lot, but there are still variants with up to 10 individuals missing. I guess it could be something with the order of the filters.  
+
+Now we look at allele frequencies of sites with 2 alleles.  
+
+```{r postqual allele frequency}
+summary(var_freq)
+var_freq2 <- var_freq[which(var_freq$nalleles == 2),]
+# but there are a few with 2 alleles in same column
+# because it is formatted wrong
+var_freq2 <- var_freq2 %>%
+  mutate(a1 = as.character(a1),
+         a1 = gsub('^"|"$', '', a1), # remove surrounding quotes if present, convert literal "\t" to a real tab
+         a1 = gsub('\\\\t', '\t', a1)) %>%
+  separate(a1, into = c("a1", "a2"), sep = "\t", fill = "right", convert = TRUE)
+# find minor allele frequency
+var_freq2$maf <- var_freq2 %>% select(a1, a2) %>% apply(1, function(z) min(z)) # for each row get smaller frequency
+ggplot(var_freq2, aes(maf))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+```
+
+There really are not a lot of biallelic sites/SNPs.  
+
+
+### Individual statistics
+
+Per individual I allowed a minimum of 3X and a max of 80X. The filtering does not seem to have shifted the individual means a lot.  
+
+```{r postqual individual depth}
+summary(ind_depth)
+ind_depth$subsp <- c(rep("black",10), rep("blue",10), rep("red",10))
+ggplot(ind_depth, aes(depth, fill = subsp)) +
+  geom_histogram(colour = "black", alpha = 0.8, bins = 30) +
+  scale_fill_manual(values = popcols)+
+  theme_pubr()
+```
+
+Per individual, the proportion of missing sites does not exceed 0.014 any more so that's good. The highest one is 120 but that is any ok number. Sexes are the same now regarding missingness so the W chromosome was filtered out.  
+
+```{r postqual individual missing sites}
+summary(ind_miss)
+ggplot(ind_miss, aes(fmiss)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3) + theme_pubr(base_size = 15)
+ind_stats <- left_join(ind_depth, subset(ind_miss, select = c(ind,nmiss,fmiss)))
+ind_stats$sex <- rep(c(rep("M",5),rep("F",5)),3)
+ggplot(ind_stats, aes(x = depth, y = fmiss, colour = sex))+
+  geom_point()+
+  #scale_color_manual(values = popcols)+
+  theme_pubr(base_size = 15)
+```
+
+Now that some basic filtering is done we can look a bit at the individuals inbreeding and relatedness to maybe filter some individuals out. 
+
+```{r postfilter heterozygosity and inbreeding}
+summary(ind_het)
+ind_stats <- left_join(ind_stats, subset(ind_het, select = -nsites))
+# display inbreeding coefficient f (calculated using method of moments)
+ggplot(ind_stats, aes(f, fill = subsp))+
+  geom_histogram(colour = "black", alpha = 0.8, bins = 20)+
+  scale_fill_manual(values = popcols)+
+  theme_pubr()
+# homozygosity
+ggplot(ind_stats, aes(ho, fill = subsp))+
+  geom_histogram(colour = "black", alpha = 0.8, bins = 20)+
+  scale_fill_manual(values = popcols)+
+  theme_pubr()
+```
+
+Some of the red ones are quite inbred and more homozygous than the others apparently, which makes sense because the red population has the least amount of founders on the farm (although some purchased from other farms were sequenced). The two outliers are 128 with f=0.29 and 132 with f=0.25.  
+
+Let's look how they are related to each other.  
+
+```{r postfilter relatedness 1}
+relmat <- xtabs(Ajk ~ ind1 + ind2, data = relatedness)
+heatmap(relmat, symm = TRUE, ColSideColors = c(rep("black",10), rep("blue",10), rep("red",10)),
+        RowSideColors =  c(rep("black",10), rep("blue",10), rep("red",10)))
+
+```
+
+The clustering does a good job at separating subspecies. 122 and 133 cluster with blue, before they did with black. We can see the siblings with shorter dendrogram branches.  
+
+```{r postfilter relatedness 2}
+relmat[relmat == 0] <- NA
+diag(relmat) <- NA # to distinguish other colours better
+
+rel_long <- melt(relmat, varnames = c("ind1", "ind2"), value.name = "Ajk")
+
+ggplot(rel_long, aes(x = ind1, y = ind2, fill = Ajk)) +
+  geom_tile(color = "grey80") +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = 0, na.value = "white"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+We can clearly see that subspecies are more related generally, blue and black more to each other than to red, while red most within. An exception is 133, which is most related to 113 and definitely more black or blue than red (according to pedigree half red half black but no indication of 113). 
+Also, 122 does not really seem to fit in in blue but better in black (according to pedigree half blue half black). 117 and 118 seem to be closely related (117 is father of 118). Also 127 & 129 (parents unknown) they must be related, maybe full siblings or parent/offspring. 130 and 129 also seem related (parents of 129 unknown, 130 has supposed black ancestry that I don't see here and is halfsib of 136 which yes is kind of dark) and 129 is dad of 130 and 133 is its mum according to the pedigree. Also 134 & 135 are clearly related (confirmed full siblings).  
+
+All in all, the story from the pedigree adds up except in the case of 133 (should be related to 130 and 136) and seems to be more black/blue than black/red.  
+Based on this, I will exclude 133 and 122 from the analysis because they are not pure subspecies. I will also remove 117, 129, 134 and 136 so that only one of each (half)sibling or parent-offspring pair remain.  
+
+# Stats after Hardy-Weinberg filtering
+
+Let's see what HW filtering did. It did not remove any sites, just some variant sites were changed to be invariable, about 120'000 SNPs. Let's see if anything else changed.  
+
+```{r load HWE stats data, include=FALSE}
+var_miss_all <- read_delim(paste0(datdir,"HWE.merged.lmiss"), delim = "\t",
+                       col_names = c("chr", "pos", "nchr", "nfiltered", "nmiss", "fmiss"), skip = 1)
+ind_depth <- read_delim(paste0(datdir,"HWE.merged.idepth"), delim = "\t",
+                        col_names = c("ind", "nsites", "depth"), skip = 1)
+ind_miss  <- read_delim(paste0(datdir,"HWE.merged.imiss"), delim = "\t",
+                        col_names = c("ind", "ndata", "nfiltered", "nmiss", "fmiss"), skip = 1)
+var_freq <- read_delim(paste0(datdir,"HWE.merged.frq"), delim = "\t",
+                       col_names = c("chr", "pos", "nalleles", "nchr", "a1", "a2"), skip = 1)
+ind_het <- read_delim(paste0(datdir,"HWE.merged.het"), delim = "\t",
+                     col_names = c("ind","ho", "he", "nsites", "f"), skip = 1)
+```
+
+There was something wrong with missingness before, let's look at that.  
+
+```{r HWE variants missing}
+summary(var_miss_all)
+ggplot(var_miss_all, aes(fmiss))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+ggplot(var_miss_all, aes(nmiss))+
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 30)+
+  theme_pubr()
+length(which(var_miss_all$fmiss>0.1))/nrow(var_miss_all)*100
+```
+
+Even more are missing now than before (even though overall most are still below 0.1 which I filtered for). 0.06% are above that though.  
+
+Let's see if anything in the allele frequency of variable sites changed.  
+
+```{r HWE allele frequency}
+var_freq2 <- var_freq[which(var_freq$nalleles == 2),]
+# but there are a few with 2 alleles in same column (but most also 1 0 wtf?)
+# because it is formatted wrong
+var_freq2 <- var_freq2 %>%
+  mutate(a1 = as.character(a1),
+         a1 = gsub('^"|"$', '', a1), # remove surrounding quotes if present, convert literal "\t" to a real tab
+         a1 = gsub('\\\\t', '\t', a1)) %>%
+  separate(a1, into = c("a1", "a2"), sep = "\t", fill = "right", convert = TRUE)
+# find minor allele frequency
+var_freq2$maf <- var_freq2 %>% select(a1, a2) %>% apply(1, function(z) min(z)) # for each row get smaller frequency
+summary(var_freq2)
+ggplot(var_freq2, aes(maf))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+nrow(var_freq2[which(var_freq2$maf > 0.03),])/nrow(var_freq2)*100
+nrow(var_freq2[which(var_freq2$maf > 0.03),])/nrow(var_freq2)*44150439
+```
+
+We see that most minor alleles are actually 0 and there are mostly rare alleles not many common ones. For the population structure analyses I will filter out alleles with maf < 0.03 which corresponds to about 2 alleles overall (26*2*0.03 = 1.56). This will keep only about 16.4% of all snips, which should be about 7.25M SNPs.
+
+
+# Stats after SNP and MAF filtering
+
+For population structure analyses, I kept only variant sites with a MAF of at least 0.03 and a minimum quality phred score of 30. This lead to 6'861'917 SNPS to be kept. The statistics here were calculated on a random 10% of the data.
+
+```{r load SNP stats data, include=FALSE}
+datdir = "/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/QC/VCFstats/"
+popcols = c("black","blue","red")
+var_qual <- read_delim(paste0(datdir,"snps.HWE.lqual"), delim = "\t",
+                       col_names = c("chr", "pos", "qual"), skip = 1)
+var_depth <- read_delim(paste0(datdir,"snps.HWE.ldepth.mean"), delim = "\t",
+                        col_names = c("chr", "pos", "mean_depth", "var_depth"), skip = 1)
+var_miss_all <- read_delim(paste0(datdir,"snps.HWE.lmiss"), delim = "\t",
+                       col_names = c("chr", "pos", "nchr", "nfiltered", "nmiss", "fmiss"), skip = 1)
+ind_depth <- read_delim(paste0(datdir,"snps.HWE.idepth"), delim = "\t",
+                        col_names = c("ind", "nsites", "depth"), skip = 1)
+ind_miss  <- read_delim(paste0(datdir,"snps.HWE.imiss"), delim = "\t",
+                        col_names = c("ind", "ndata", "nfiltered", "nmiss", "fmiss"), skip = 1)
+var_freq <- read_delim(paste0(datdir,"snps.HWE.frq"), delim = "\t",
+                       col_names = c("chr", "pos", "nalleles", "nchr", "a1", "a2"), skip = 1)
+ind_het <- read_delim(paste0(datdir,"snps.HWE.het"), delim = "\t",
+                     col_names = c("ind","ho", "he", "nsites", "f"), skip = 1)
+relatedness <- read_delim(paste0(datdir,"snps.HWE.relatedness"), delim = "\t",
+                          col_names = c("ind1","ind2","Ajk"), skip = 1)
+var_GQ <- read_delim(paste0(datdir,"snps.HWE.GQ.FORMAT"), delim = "\t",
+                          col_names = c("chr", "pos", ind_depth$ind),
+                     col_types = paste0(c("c",rep("i",31)), collapse = ""), skip = 1)
+```
+
+### Variant statistics
+
+Let's see how much depth is left first.  
+
+```{r snp variant depth}
+summary(var_depth)
+ggplot(var_depth, aes(mean_depth))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+```
+
+The depth is still good.  
+Next we look whether the overall quality filtering worked.   
+
+```{r snp variant quality}
+summary(var_qual)
+ggplot(var_qual, aes(qual)) +
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 10) +
+  xlim(NA,1000)+
+  theme_pubr()
+```
+
+We have the minimum quality of 30, but actually most have even higher quality, so that's good.
+
+Maybe all this filtering lead to more sites missing?  
+
+```{r snp variants missing}
+summary(var_miss_all)
+ggplot(var_miss_all, aes(nmiss))+
+  geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 30)+
+  theme_pubr()
+```
+
+No, most sites are not missing in any individual, superb.  
+Let's look at the allele frequencies of our SNPs.
+
+```{r snp allele frequency}
+# find minor allele frequency
+var_freq$maf <- var_freq %>% select(a1, a2) %>% apply(1, function(z) min(z)) # for each row get smaller frequency
+summary(var_freq)
+ggplot(var_freq, aes(maf))+
+  geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)+
+  theme_pubr()
+```
+
+The filtering worked, we don't have any minor allele frequencies below 0.03. It seems like the re would be a lot more variants with lower MAF, I think this filter is where I lost most of the SNPs. Which is fine for the PCA and Admixture part of the analysis.  
+
+### Individual statistics
+
+Let's see how SNP depth and missingness differs between individuals.  
+
+```{r snp individual depth}
+summary(ind_depth)
+ind_depth$subsp <- c(rep("red",6), rep("black",10), rep("blue",8))
+ggplot(ind_depth, aes(depth, fill = subsp)) +
+  geom_histogram(colour = "black", alpha = 0.8) +
+  scale_fill_manual(values = popcols)+
+  theme_pubr()
+```
+
+Depth is not altered, overall depth seems to heavily influence SNP depth.  
+
+
+```{r snp individual missing sites}
+summary(ind_miss)
+ggplot(ind_miss, aes(fmiss)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3) + theme_pubr(base_size = 15)
+ind_stats <- left_join(ind_depth, subset(ind_miss, select = c(ind,nmiss,fmiss)),by = join_by(ind))
+ind_stats$sex <- c(rep("M",4),"F","F", rep("M",5), rep("F",5),rep("M",4),rep("F",4))
+ggplot(ind_stats, aes(x = depth, y = fmiss, colour = sex, shape = subsp))+
+  geom_point()+
+  #scale_color_manual(values = popcols)+
+  theme_pubr(base_size = 15)
+```
+
+As we can see the two humps arrive because the black individuals seem to have more missing sites than red and blue (apart from 120 of course).  
+
+Let's see if there is any change in the conclusions about relatedness when just looking at HWE-filtered SNPs.  
+
+```{r snp relatedness 1}
+relmat <- xtabs(Ajk ~ ind1 + ind2, data = relatedness)
+heatmap(relmat, symm = TRUE, ColSideColors = c(rep("black",10), rep("blue",8), rep("red",6)),
+        RowSideColors =  c(rep("black",10), rep("blue",8), rep("red",6)))
+
+```
+
+The clustering does a great job at separating subspecies. Now that I removed wrongly labelled individuals and siblings there is nothing special.   
+
+```{r snp relatedness 2}
+relmat[relmat == 0] <- NA
+diag(relmat) <- NA # to distinguish other colours better
+
+rel_long <- melt(relmat, varnames = c("ind1", "ind2"), value.name = "Ajk")
+
+ggplot(rel_long, aes(x = ind1, y = ind2, fill = Ajk)) +
+  geom_tile(color = "grey80") +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = 0, na.value = "white"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+After removing siblings and parent-offspring, the most related individuals are 127, 128 and 130, which according to pedigree are not related (but the parents of 127 and 128 are unknown).  
+
+

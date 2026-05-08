@@ -1,0 +1,717 @@
+---
+title: "Targeted Fst age interaction"
+author: "Lea Huber"
+date: '`r Sys.Date()`'
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,fig.height = 4, fig.width = 6, fig.align = 'center',fig.pos = "h")
+knitr::opts_knit$set(root.dir = "/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+pacman::p_load(tidyverse,knitr,kableExtra,ggpubr,FSA,ggbreak)
+```
+
+```{r load data}
+# fst and other pop stats
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+Popstats <- read.csv("data/FstTargeted/monobiallelic.500bp_start.ageint.regionsOI_fst.csv")
+regInfo <- read.table("data/FstTargeted/regionsOI_ageint_500bp.with_names.bed", col.names = c("scaffold","start","end","geneID", "start_codon"))
+snp_counts <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.snp_counts.bed", col.names = c("scaffold","start","end","snps"))
+
+# add gene ids and snp counts to the pop stats df
+Popstats <- full_join(Popstats,regInfo, by = join_by(scaffold,start,end))
+Popstats <- full_join(Popstats,snp_counts, by = join_by(scaffold,start,end))
+
+tempcols2 = c(shared = "#6800a4", cold = "#377EB8", hot = "#E41A1C")
+
+# gene expression results from glmmSeq for age interaction genes
+load("../ChamberTempExp/data/working/RNAseq_countdata/age_dir_cats.RData")
+
+# add gene category to Popstats
+Popstats <- full_join(Popstats, age_dirs, by = join_by(geneID == gene))
+
+```
+
+```{r end on scaffold, include=FALSE}
+# I made sure that they don't start before position 1, but the regions could go over end of scaffold
+# does that happen? What are the consequences (error or just calculates with sites that are there?)
+scaff_ends <- read.table("QC/VCFstats/reference_scaffoldlength.txt", col.names = c("scaffold","scaff_end"))
+Popstats <- left_join(Popstats,scaff_ends) # just add it to popstats 
+which(Popstats$end > Popstats$scaff_end) # 4 of those have no data because they are on <1000 scaffolds
+# one has no data for some other reason
+# and two do have data, with a mid and nr of sites that makes sense, so it just takes the actual end of the region for calculation no problem
+```
+ 
+```{r filter}
+# remove NA's and age interaction genes
+summary(Popstats$snps)
+Popstats <- filter(Popstats, !is.na(Fst_blue_red) &
+                     snps > 1) # set minimum nr of snps
+# how many each category?
+table(Popstats$cvb)
+table(Popstats$hvb)
+```
+
+Removing regions with just one SNP removes 5 rows with NAs and 5 more with just one snp.
+
+Get some overview of the data and do some checks.  
+
+```{r checks, include=FALSE}
+# check if the start codon makes sense
+plot(Popstats$end, Popstats$start_codon)
+abline(0,1) # yes it always seems to be very close
+plot(Popstats$end - Popstats$start_codon, ylim = c(0,3000)) # many are at 500
+plot(Popstats$start_codon - Popstats$start, ylim = c(0,3000))
+# looks good
+```
+
+Maybe the number of sites or the number of SNPs influences the $F_{ST}$, so let's check that. 
+
+```{r site or snp influence, fig.show='hold', fig.width=3, fig.height=4}
+plot(Popstats$snps, Popstats$Fst_blue_red)
+plot(Popstats$snps, Popstats$dxy_blue_red)
+```
+
+Regions with few SNPs have a lot more variation in $F_{ST}$, maybe because then there would be more error associated with it.  
+
+What about in interaction with SNP density, so regions with many SNP's compared to the number of sites, or few.  
+
+```{r missing sites and snp density, fig.show='hold', fig.width=3, fig.height=4}
+Popstats$missingSites <- (Popstats$end - Popstats$start) - Popstats$sites
+hist(Popstats$missingSites) # there're very few negative
+# which(Popstats$missingSites < 0) # 2
+ggplot(Popstats, aes(x = end - start, y = sites, colour = Fst_blue_red))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+
+ggplot(Popstats, aes(x = sites, y = snps, colour = missingSites))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+ggplot(Popstats, aes(x = snps/sites, y = Fst_blue_red))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+
+```
+
+Most have quite few missing sites. There are two with a negative number, both have very few snps (0 and 1) and thus some missing values anyway. But overall the number of sites makes sense when comparing it to end - start now.  
+
+The number of SNPs correlates well with the number of sites. When we look at how the density might influence $F_{ST}$ it does not seem like it does when looking at nr of sites or region length. 
+
+Reminder that $\pi$ and $d_{xy}$ are correlated:  
+
+```{r pi dxy corr}
+ggplot(Popstats, aes(x = pi_blue, y = dxy_blue_red))+
+  geom_point(alpha = 0.6)+
+  theme_pubr()
+```
+
+
+# Compare age categories
+
+### Cold  
+
+Let's first check the gene lengths to make sure that couldn't bias the results.
+
+```{r cold age gene length, fig.show='hold',fig.height=3.5,fig.width=3}
+PopstatsCold <- filter(Popstats, cvb != "not_sig")
+test <- kruskal.test(sites ~ cvb, PopstatsCold)
+ggplot(PopstatsCold, aes(x = cvb, y = sites))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+test <- kruskal.test(snps ~ cvb, PopstatsCold)
+ggplot(PopstatsCold, aes(x = cvb, y = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+```
+
+There are no differences in number of sites or SNPs between categories.  
+
+```{r cold age}
+PopstatsCold <- filter(Popstats, cvb != "not_sig")
+# are they significantly different?
+test <- kruskal.test(Fst_blue_red ~ cvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = cvb, y = Fst_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+# are they significantly different?
+test <- kruskal.test(dxy_blue_red ~ cvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = cvb, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+test <- kruskal.test(pi_red ~ cvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = cvb, y = pi_blue))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+```
+
+### Hot  
+
+Let's again first check the gene lengths to make sure that couldn't bias the results
+
+```{r cold age gene length, fig.show='hold',fig.height=3.5,fig.width=3}
+PopstatsHot <- filter(Popstats, hvb != "not_sig")
+test <- kruskal.test(sites ~ cvb, PopstatsHot)
+ggplot(PopstatsHot, aes(x = cvb, y = sites))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+test <- kruskal.test(snps ~ cvb, PopstatsHot)
+ggplot(PopstatsHot, aes(x = cvb, y = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+```
+
+Huh there's a bit of a trend here with opposite direction genes being smaller/shorter.  
+
+```{r hot age}
+PopstatsHot <- filter(Popstats, hvb != "not_sig")
+# are they significantly different?
+test <- kruskal.test(Fst_blue_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = Fst_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+# are they significantly different?
+test <- kruskal.test(dxy_blue_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# there is a difference! But what?
+dunnTest(dxy_blue_red ~ hvb, PopstatsHot, method = "bh") 
+
+test <- kruskal.test(pi_blue ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = pi_blue))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# there is a difference! But what?
+dunnTest(pi_blue ~ hvb, PopstatsHot, method = "bh") 
+PopstatsHot %>% group_by(hvb) %>% summarise(mean(pi_blue))
+
+test <- kruskal.test(pi_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = pi_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# there is a difference! But what?
+dunnTest(pi_red ~ hvb, PopstatsHot, method = "bh") 
+
+PopstatsHot %>% group_by(hvb) %>% summarise(mean(pi_red))
+```
+
+There are no significant differences between the cold genes, but in heat, there are differences in $d_{xy}$ and $\pi$. $D_{xy}$ is different in all comparisons except just_1week - opposite_direction, just_1week - same_direction and same_direction - same_slope. For $\pi_{red}$ the same comparisons are also significant, and also for $\pi_{blue}$ it's the same except just_1week - opposite_direction are also different.  
+
+Opposite direction genes have the highest $\pi$ values, so the highest nucleotide diversity. Those genes are expressed differently in the two age groups in the heat, so the importance of their functions in relation to heat changes during development. We thus don't expect positive selection because selection pressure changes during development and thus likely cannot take effect. This absence of selection pressure is in line with the high nucleotide diversity we observe.  
+
+Check whether they are same genes as hotup.
+
+```{r check same genes}
+goppdir_hot <- filter(PopstatsHot, hvb == "opposite_direction")$geneID
+load("../ChamberTempExp/data/working/RNASeq_countdata/NewPHgenesForGO.RData")
+goppdir_hot %in% hotup # no not at all
+```
+
+No there is no overlap.  
+
+```{r plots for paper, include=FALSE}
+
+# maybe filter out snps < 10
+PopstatsHot <- filter(PopstatsHot, snps > 10)
+test_dxy <- kruskal.test(dxy_blue_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+dunnTest(dxy_blue_red ~ hvb, PopstatsHot, method = "bh") 
+ggplot(PopstatsHot, aes(x = hvb, y = dxy_blue_red, colour = hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.7, alpha = 0.7)+
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 1, xmax = 1.95, tip_length = 0.01,textsize = 5, colour = "black")+ # just_1week - just_8week
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 2.05, xmax = 2.95, tip_length = 0.01, textsize = 5, colour = "black")+ # just_8week - opposite_direction
+  # geom_signif(annotations = "*", y_position = 0.014, xmin = 2.1, xmax = 4, tip_length = 0.01, textsize = 5, colour = "black")+ #  just_8week - same_direction
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 3.05, xmax = 5, tip_length = 0.01, textsize = 5, colour = "black")+ #  opposite_direction - same_slope
+  geom_signif(annotations = "*", y_position = 0.014, xmin = 1, xmax = 5, tip_length = 0.01, textsize = 5, colour = "black")+ # just_1week - same_slope
+  # geom_signif(annotations = "NA", y_position = 0.0135, xmin = 1, xmax = 3, tip_length = 0.01, textsize = 3, colour = "black")+ # just_1week - opposite_direction
+  # geom_signif(annotations = "NA", y_position = 0.014, xmin = 1, xmax = 3.95, tip_length = 0.01, textsize = 3, colour = "black")+ # just_1week - same_direction
+  # geom_signif(annotations = "NA", y_position = 0.014, xmin = 4.05, xmax = 5, tip_length = 0.01, textsize = 3, colour = "black")+ # same_direction - same_slope
+  scale_y_break(c(0.007, 0.013), space = 0.3)+
+  geom_hline(yintercept = 0.013, linetype = 3, alpha = 0.3)+
+  scale_y_continuous(limits = c(0, 0.0144))+
+  #scale_colour_manual(values = c( "#e1bee7", "#ba68c8", "#9c27b0", "#6800a4", "#4a148c"))+
+  scale_colour_manual(values = c( "#780852", "#780852", "#780852", "#780852", "#780852"))+
+  scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
+  guides(colour = guide_legend(nrow = 2))+
+  xlab("Thermal response across age")+ylab("Absolute differentiation (Dxy)")+
+  theme_pubr(base_size = 17, legend = "none")+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1))
+
+## pi
+# put them into one plot, so need to reshape
+PopstatsHot_pilong <- pivot_longer(PopstatsHot, pi_black:pi_red, names_to = "pop", names_prefix = "pi_", values_to = "pi")
+
+testpiB <- kruskal.test(pi_blue ~ hvb, PopstatsHot)
+testpiR <- kruskal.test(pi_red ~ hvb, PopstatsHot) 
+dunnTest(pi_blue ~ hvb, PopstatsHot, method = "bh") 
+dunnTest(pi_red ~ hvb, PopstatsHot, method = "bh") 
+
+ggplot(filter(PopstatsHot_pilong, pop != "black"), aes(x = hvb, y = pi, shape = pop, colour = hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.9, alpha = 0.7, position = position_jitterdodge())+
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 0.8, xmax = 1.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_1week - just_8week blue
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 1.85, xmax = 2.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_8week - opposite_direction blue
+  geom_signif(annotations = "*", y_position = 0.013, xmin = 1.85, xmax = 3.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_8week - same_direction blue
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 0.8, xmax = 4.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_1week - same_slope blue
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 2.85, xmax = 4.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # opposite_direction - same_slope blue
+  geom_signif(annotations = "*", y_position = 0.0122, xmin = 3.2, xmax = 5.2, tip_length = 0.01, textsize = 5, colour = "red")+ # opposite_direction - same_slope red
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.008, 0.012), space = 0.3)+
+  scale_y_continuous(limits = c(0, 0.014))+
+  #scale_colour_manual(values = c("#e1bee7", "#ba68c8", "#9c27b0", "#6800a4", "#4a148c"))+
+  scale_colour_manual(values = c( "#780852", "#780852", "#780852", "#780852", "#780852"))+
+  scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
+  scale_shape_discrete(labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
+  guides(shape = guide_legend(position = "top", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))),
+         colour = "none")+
+  xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+
+```
+
+
+## Tajima's D
+
+There is literature reporting balancing selection in heat shock proteins, mostly due to heterozygote advantage. Thus it could be worth it to corroborate this with some method. Tajima's D (the difference between the mean number of pairwise differences ($\pi$) and the number of segregating sites, each scaled so that they are expected to be the same in a neutrally evolving population of constant size) should be > 0 in the case of balancing selection, which means more haplotypes than nr of segregating sites, thus a lack of rare alleles.  
+
+```{r get tajima d data, include=FALSE}
+td_red <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.red.Tajima.D", header = TRUE)
+td_blue <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.blue.Tajima.D", header = TRUE)
+# delete nan rows
+td_red <- filter(td_red, !is.na(TajimaD))
+td_blue <- filter(td_blue, !is.na(TajimaD))
+
+# for red
+td_red$bin_end <- td_red$BIN_START + 350000
+# add values to region overlapping genes in popstats, probably easiest to do scaffold by scaffold
+matchmat <- sapply(Popstats$start, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+diag(matchmat) # in the beginning it matches up but then not any more except here and there
+# so now I have to kind of match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+which(matchmat[,1])
+matches <- apply(matchmat,2, which)
+nmatches <- rep(0,nrow(Popstats))
+Popstats$td_red <- NA
+Popstats$td_red_snps <- NA
+for (i in 1:nrow(Popstats)){
+  candidates <- matches[[i]]
+  for (j in candidates){
+    if (td_red[j,"CHROM"] == Popstats[i,"scaffold"]){
+      Popstats[i,"td_red"] <- td_red[j,"TajimaD"]
+      Popstats[i,"td_red_snps"] <- td_red[j,"N_SNPS"] # this is to test if this matches more or less
+      nmatches[i] <- nmatches[i] + 1
+    }
+  }
+}
+nmatches
+
+
+# check nr of snps
+plot(Popstats$snps, Popstats$td_red_snps) 
+Popstats$snp_diff <- Popstats$snps - Popstats$td_red_snps
+plot(Popstats$sites,Popstats$snp_diff) 
+
+## now for blue
+td_blue$bin_end <- td_blue$BIN_START + 350000
+# add values to region overlapping genes in popstats, probably easiest to do scaffold by scaffold
+matchmat <- sapply(Popstats$start, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+diag(matchmat) #
+
+which(matchmat[,1])
+matches <- apply(matchmat,2, which)
+nmatches <- rep(0,nrow(Popstats))
+Popstats$td_blue <- NA
+Popstats$td_blue_snps <- NA
+for (i in 1:nrow(Popstats)){
+  candidates <- matches[[i]]
+  for (j in candidates){
+    if (td_blue[j,"CHROM"] == Popstats[i,"scaffold"]){
+      Popstats[i,"td_blue"] <- td_blue[j,"TajimaD"]
+      Popstats[i,"td_blue_snps"] <- td_blue[j,"N_SNPS"] # this is to test if this matches more or less
+      nmatches[i] <- nmatches[i] + 1
+    }
+  }
+}
+nmatches
+
+## check nr of snps
+plot(Popstats$snps, Popstats$td_blue_snps) # looks the same as before
+Popstats$snp_diff <- Popstats$snps - Popstats$td_blue_snps
+plot(Popstats$sites,Popstats$snp_diff) 
+```
+
+### In heat  
+
+```{r plot tajimas d hot }
+PopstatsHot <- filter(Popstats, hvb != "not_sig")
+test <- kruskal.test(td_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = td_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+dunnTest(td_red ~ hvb, PopstatsHot, method = "bh") 
+
+test <- kruskal.test(td_blue ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = td_blue))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# here not different
+
+```
+
+In the blue subspecies, there does not seem to be any differences in Tajima's D in these categories. However, in the red population, Tajima's D is higher in genes that are only expressed in 8-week-olds (it's the only one different from 0). These genes had the overall *lowest* nucleotide diversity, so one would not expect balancing selection. Apparently it still has more haplotypes than segregating sites (lack of rare alleles). The oppositely expressed genes that we expected to have high Tajima's D have the second highest in the reds.  
+
+The difference between reds and blues here is also apparent. Reds had generally lower nucleotide diversity than blues and are more inbred, which could maybe explain the generally higher Tajima's D/lack of rare alleles, as those could have gotten lost in the bottleneck of few founders on the farm. In general, one has to keep in mind when interpreting these results that they can be influenced by demography.  
+
+Here is cold for completeness.
+
+### In cold  
+
+```{r plot tajimas d cold}
+PopstatsCold <- filter(Popstats, cvb != "not_sig")
+test <- kruskal.test(td_red ~ hvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = hvb, y = td_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# probably to few to be significant
+
+test <- kruskal.test(td_blue ~ hvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = hvb, y = td_blue))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# here not different
+
+```
+
+The same trend emerges with cold genes, however, the differences are not significant.  
+
+## Slightly different way of calculating Tajima's D
+
+```{r get tajima d data 2, include=FALSE}
+td_red <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.red2.Tajima.D", header = TRUE)
+td_blue <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.blue2.Tajima.D", header = TRUE)
+# delete nan rows
+td_red <- filter(td_red, !is.na(TajimaD))
+td_blue <- filter(td_blue, !is.na(TajimaD))
+
+# for red
+td_red$bin_end <- td_red$BIN_START + 10000
+# add values to region overlapping genes in popstats
+# now a bit more complicated because there could be more than one and not just start should be in it
+# so I do start and end and then take all peaces in between later
+matchmat_start <- sapply(Popstats$start, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+matchmat_end <- sapply(Popstats$end, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+# so now I have to kind of match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+matches_start <- apply(matchmat_start,2, which)
+matches_end <- apply(matchmat_end,2, which)
+Popstats$td_red2 <- NA
+Popstats$what <- NA
+Popstats$start_cands <- 0
+for (i in 1:nrow(Popstats)){
+  candidates_start <- matches_start[[i]]
+  candidates_end <- matches_end[[i]]
+  for (j in candidates_start){
+    if (td_red[j,"CHROM"] == Popstats[i,"scaffold"]){ # only for start on same scaffold (I expect there to be only one right candidate always)
+      # find matching end position
+      end <- candidates_end[which((j <= candidates_end & candidates_end < j + 40) | j == candidates_end)] # I expect end to be close, max 350000/10000 = 35 away, or the same
+      if (length(end) > 1){
+        if (td_red[end[1],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[1]
+        } else if (td_red[end[2],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[2]
+        }else{
+          Popstats[i,"what"] <- "weird_end"
+          next # I hope this makes that it will jump to the next i (not j) (but it never happened anyway)
+        }
+      } # if there are multpiple candidates, take which is on the same chromosome
+      if (is.numeric(end) & length(end) > 0){
+        Popstats[i,"td_red2"] <- mean(td_red[j:end,"TajimaD"]) # take the average of all rows in between (if they are the same it will still work)
+        Popstats[i,"snps2"] <- sum(td_red[j:end,"N_SNPS"])
+        Popstats[i,"what"] <- paste0("end_exists_",end)
+      }else{ # else just take start
+        Popstats[i,"td_red2"] <- td_red[j,"TajimaD"]
+        Popstats[i,"snps2"] <- td_red[j,"N_SNPS"]
+        Popstats[i,"what"] <- "end_missing"
+      }
+      # somehow record what happened
+      Popstats[i,"start_cands"] <- Popstats[i,"start_cands"] +1
+    }
+  } # I guess it could also happen for small chromosome that only the end is in a chunk
+  if (is.na(Popstats[i,"td_red2"])){ # so in that case (when start is missing) check for ends and take them
+    for (e in candidates_end){
+      if (td_red[e,"CHROM"] == Popstats[i,"scaffold"]){
+        Popstats[i,"td_red2"] <- td_red[e,"TajimaD"]
+        Popstats[i,"what"] <- "start_missing"
+      }
+    }
+  }
+}
+
+
+## now for blue
+td_blue$bin_end <- td_blue$BIN_START + 10000
+# add values to region overlapping genes in popstats
+# now a bit more complicated because there could be more than one and not just start should be in it
+# so I do start and end and then take all peaces in between later
+matchmat_start <- sapply(Popstats$start, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+matchmat_end <- sapply(Popstats$end, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+# so now I have to kind of match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+matches_start <- apply(matchmat_start,2, which)
+matches_end <- apply(matchmat_end,2, which)
+Popstats$td_blue2 <- NA
+Popstats$what <- NA
+Popstats$start_cands <- 0
+for (i in 1:nrow(Popstats)){
+  candidates_start <- matches_start[[i]]
+  candidates_end <- matches_end[[i]]
+  for (j in candidates_start){
+    if (td_blue[j,"CHROM"] == Popstats[i,"scaffold"]){ # only for start on same scaffold (I expect there to be only one right candidate always)
+      # find matching end position
+      end <- candidates_end[which((j <= candidates_end & candidates_end < j + 40) | j == candidates_end)] # I expect end to be close, max 350000/10000 = 35 away, or the same
+      if (length(end) > 1){
+        if (td_blue[end[1],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[1]
+        } else if (td_blue[end[2],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[2]
+        }else{
+          Popstats[i,"what"] <- "weird_end"
+          next # I hope this makes that it will jump to the next i (not j) (but it never happened anyway)
+        }
+      } # if there are multpiple candidates, take which is on the same chromosome
+      if (is.numeric(end) & length(end) > 0){
+        Popstats[i,"td_blue2"] <- mean(td_blue[j:end,"TajimaD"]) # take the average of all rows in between (if they are the same it will still work)
+        Popstats[i,"what"] <- paste0("end_exists_",end)
+      }else{ # else just take start
+        Popstats[i,"td_blue2"] <- td_blue[j,"TajimaD"]
+        Popstats[i,"what"] <- "end_missing"
+      }
+      # somehow record what happened
+      Popstats[i,"start_cands"] <- Popstats[i,"start_cands"] +1
+    }
+  } #It could also happen for small chromosome that only the end is in a chunk
+  if (is.na(Popstats[i,"td_blue2"])){ # so in that case (when start is missing) check for ends and take them
+    for (e in candidates_end){
+      if (td_blue[e,"CHROM"] == Popstats[i,"scaffold"]){
+        Popstats[i,"td_blue2"] <- td_blue[e,"TajimaD"]
+        Popstats[i,"what"] <- "start_missing"
+      }
+    }
+  }
+}
+
+```
+
+```{r compare Tajimas D}
+plot(Popstats$td_blue,Popstats$td_blue2)
+abline(0,1)
+plot(Popstats$td_red,Popstats$td_red2)
+abline(0,1)
+```
+
+This other method seems overall similar and there doesn't seem to be a bias. However, some of the differences are quite big. Let's see if this influences the results.  
+
+### TD in heat new  
+
+```{r plot tajimas d hot new }
+PopstatsHot <- filter(Popstats, hvb != "not_sig")
+test <- kruskal.test(td_red2 ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = td_red2))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# there is no difference any more
+
+# what with filtering out ones with few snps
+PopstatsHot <- filter(PopstatsHot, snps2 > 10)
+test <- kruskal.test(td_red2 ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = td_red2))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# makes it less significant
+
+test <- kruskal.test(td_blue2 ~ hvb, PopstatsHot) # p > 0.05 -> no not different
+ggplot(PopstatsHot, aes(x = hvb, y = td_blue2))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# here not different
+
+```
+
+The trends are similar to before, however the result is not significant now. In cold there also no big change.  
+
+```{r plot tajimas d 2 cold, include=FALSE}
+PopstatsCold <- filter(Popstats, cvb != "not_sig")
+test <- kruskal.test(td_red2 ~ hvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = hvb, y = td_red2))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# probably to few to be significant
+
+test <- kruskal.test(td_blue2 ~ hvb, PopstatsCold) # p > 0.05 -> no not different
+ggplot(PopstatsCold, aes(x = hvb, y = td_blue2))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  geom_abline(slope = 0, intercept = 0)+
+  ggtitle(paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+# here not different
+
+```
+
+```{r save popstats}
+save(Popstats, file = "data/FstTargeted/Popstats_ageint.RData")
+```
+
+
+## Hot up and down ages
+
+There were especially many genes up and down regulated in heat only in 1-week-olds, so maybe something special is happening when they are very young. Let's have a look at those genes.  
+
+```{r get age up down data,fig.show='hold',fig.height=3.5,fig.width=3}
+# need to get that info from somewhere first
+load("../ChamberTempExp/data/working/RNASeq_countdata/cat_eff_age_resp.RData")
+# add up down info to Popstats
+Popstats <- left_join(Popstats, dplyr::select(cat_eff2, c(gene, week1, week8)), by = join_by(geneID == gene)) # doubles some genes with different effects in ages
+# simplify to just up down
+Popstats$week1_dir <- ifelse(Popstats$week1 < 0, "down","up")
+Popstats$week8_dir <- ifelse(Popstats$week8 < 0, "down","up")
+# make up vs down plot by age, just hot
+Popstats_hotw1 <-  filter(Popstats, hvb == "just_1week" & !is.na(week1_dir))
+library(brunnermunzel)
+test <- brunnermunzel.test(filter(Popstats_hotw1, week1_dir == "up")$dxy_blue_red, filter(Popstats_hotw1, week1_dir == "down")$dxy_blue_red)
+ggplot(Popstats_hotw1, aes(x = week1_dir, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.6)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+Popstats_hotw8 <-  filter(Popstats, hvb == "just_8week" & !is.na(week8_dir))
+library(brunnermunzel)
+test <- brunnermunzel.test(filter(Popstats_hotw8, week8_dir == "up")$dxy_blue_red, filter(Popstats_hotw8, week8_dir == "down")$dxy_blue_red)
+ggplot(Popstats_hotw8, aes(x = week8_dir, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.6)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+```
+
+We cannot conclude that differences in age drive the difference in $d_{xy}$ in hot up to the rest/hot down. If our hypothesis that the higher $\pi$ in hot up is due to heat shock proteins that are apparently known to be under balancing selection is true, this makes sense, because HSPs are expressed in both ages, not just 1-week-olds.  
+
+# Check gene length thing
+
+### Fig 17A: number of sites per gene in genes with age:treatment interaction
+
+```{r oppdir noint pvals}
+ggplot(PopstatsHot, aes(x = hvb, y = sites, colour = hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.7, alpha = 0.7)+
+  scale_colour_manual(values = c( "#ff0000", "#f8c75d", "#f98400", "#00a08a", "#5bbcd6" ),
+                      labels = c("just 1-week-old", "just 8-week-old","opposite direction", "same direction", "no age interaction"))+
+  scale_x_discrete(labels = c("just 1-week-old", "just 8-week-old","opposite direction", "same direction", "no age interaction"))+
+  guides(colour = guide_legend(nrow = 2))+
+  # labs(subtitle= paste0("Kruskal p-value: ",round(test_dxy$p.value,4)))+
+  xlab("")+ylab("Nr of sites in gene")+
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+```
+
+### Fig 17B: Brunnermunzel p-values of pi and dxy between just_8week and just_1week after sampling a similar distribution of number of sites from just_1week as just_8week
+
+```{r just1w just8w pvals}
+stats_1w8w <- get_similar_dist(Popstats_int, "hvb", "just_8week","just_1week",20)[[1]]
+pvals_just1w_just8w <- get_similar_dist(Popstats_int, "hvb", "just_8week","just_1week",20)[[2]]
+pi_red <- length(which(pvals_just1w_just8w$pi_red < 0.05))
+pi_blue <- length(which(pvals_just1w_just8w$pi_blue < 0.05))
+dxy <- length(which(pvals_just1w_just8w$dxy < 0.05))
+
+ggplot(stats_1w8w, aes(x = cat4, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  annotate("text", x=2, y = 0.003, label = paste0("P values below 0.05 for Pi red: ", pi_red,"/20"))+
+  annotate("text", x=2, y = 0.0035, label = paste0("P values below 0.05 for Pi blue: ", pi_blue,"/20"))+
+  annotate("text", x=2, y = 0.0025, label = paste0("P values below 0.05 for dxy: ", dxy,"/20"))+
+  theme_pubr(base_size = 10)
+
+```
+
+### Fig 17C: Brunnermunzel p-values of pi and dxy between "no age interaction" and "opposite direction" after sampling a similar distribution of number of sites from "no age interaction" as "opposite direction"
+
+```{r opp dir same slope pvals}
+stats_oppsame <- get_similar_dist(Popstats_int, "hvb", "opposite_direction","same_slope",20)[[1]]
+pvals_oppdir_noint <- get_similar_dist(Popstats_int, "hvb", "opposite_direction","same_slope",20)[[2]]
+pi_red <- length(which(pvals_oppdir_noint$pi_red < 0.05))
+pi_blue <- length(which(pvals_oppdir_noint$pi_blue < 0.05))
+dxy <- length(which(pvals_oppdir_noint$dxy < 0.05))
+
+ggplot(stats_oppsame, aes(x = cat4, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  annotate("text", x=2, y = 0.006, label = paste0("P values below 0.05 for Pi red: ", pi_red,"/20"))+
+  annotate("text", x=2, y = 0.005, label = paste0("P values below 0.05 for Pi blue: ", pi_blue,"/20"))+
+  annotate("text", x=2, y = 0.004, label = paste0("P values below 0.05 for dxy: ", dxy,"/20"))+
+  theme_pubr(base_size = 10)
+
+```
+
+
+

@@ -1,0 +1,154 @@
+---
+title: "Filtered sites"
+author: "Lea Huber"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/scripts")
+
+library(tidyverse)
+library(ggpubr)
+library(patchwork)
+
+```
+
+Here I will look at patterns of where the filtered out positions lie in the genome to get an overview and find suspicious patterns.
+
+```{r loaddata, include=FALSE}
+wrong_depth <- read.table("../data/removed_sites/qual_depth.removed_sites.vcf.gz", header = FALSE, col.names = c("scaffold","position","A1","A2","set_mem"))
+summary(wrong_depth)
+wrong_depth$type <- rep("wrong_depth",nrow(wrong_depth))
+
+indel_multi <- read.table("../data/removed_sites/indel_multiallelic.removed_sites.vcf.gz", header = FALSE, col.names = c("scaffold","position","A1","A2","set_mem"))
+summary(indel_multi)
+indel_multi$type <- rep("indel_multi",nrow(indel_multi))
+
+hwered <- read.table("../data/removed_sites/red_HWE.removed_sites.vcf.gz", header = FALSE, col.names = c("scaffold","position","A1","A2","set_mem"))
+summary(hwered)
+hwered$type <- rep("hwered",nrow(hwered))
+
+hweblue <- read.table("../data/removed_sites/blue_HWE.removed_sites.vcf.gz", header = FALSE, col.names = c("scaffold","position","A1","A2","set_mem"))
+summary(hweblue)
+hweblue$type <- rep("hweblue",nrow(hweblue))
+
+hweblack <- read.table("../data/removed_sites/black_HWE.removed_sites.vcf.gz", header = FALSE, col.names = c("scaffold","position","A1","A2","set_mem"))
+summary(hweblack)
+hweblack$type <- rep("hweblack",nrow(hweblack))
+
+snps <- read.table("../data/snps.HWE.subset.vcf.gz", header = FALSE)
+snps <- snps[,c(1,2,4,5,6)]
+colnames(snps) <- c("scaffold","position","A1","A2","set_mem")
+summary(snps)
+snps$type <- rep("SNP", nrow(snps))
+
+allpos <- rbind(wrong_depth,indel_multi,snps,hwered,hweblue,hweblack)
+
+```
+
+Because there are more monomorphic sites than SNPs and the file of removed monomorphic sites is thus huge, I will just plot SNPs instead. And also just random 10% that I used for the stats, that should not distort density too much.  
+
+```{r scaffsize}
+scaffsize <- allpos %>% group_by(scaffold) %>% summarise(size = max(position))
+scaffsize <- scaffsize[order(scaffsize$size, decreasing = TRUE),]
+```
+
+Plot scaffolds over 1 million bp
+
+```{r plots}
+
+plots <- list()
+
+for (scaf in unique(allpos$scaffold)[1:33]){
+  df <- filter(allpos, scaffold == scaf)
+  # compute counts per type
+  counts <- df %>% count(type)
+  # get x postition for labels
+  xr <- range(df$position, na.rm = TRUE)
+  label_x <- seq(xr[1], xr[2], length.out = nrow(counts))
+  # pick y-position for labels (adjust as needed)
+  ylim <- ggplot_build(
+    ggplot(df, aes(position)) + geom_density()
+  )$layout$panel_params[[1]]$y.range[2]
+  # plot
+  p <- ggplot(df, aes(x = position, colour = type)) +
+    geom_density() +
+    geom_text(
+      data = counts %>% mutate(x = label_x, y = ylim * 1.05),
+      aes(x = x, y = y, label = n))+
+    ggtitle(scaf)+
+    scale_color_manual(values = c(hweblack="black",hweblue="blue",hwered="red",indel_multi="green",SNP="orange",wrong_depth="purple")) +
+    theme_pubr()
+  
+  print(p) # otherwise not printed in loop
+  #plots[[scaf]] <- p # saves automatically with name in new list position
+
+}
+
+# combine into a grid
+#wrap_plots(plots, ncol = 2)  # 4 columns, adjust as you like
+
+```
+
+
+It looks like in most scaffolds, indels & multiallelic sites overlap with too low or too high depth regions. In most scaffolds they are distributed quite randomly and uniformly. Some interesting patterns on a couple of scaffolds:  
+
+- 5: Not sure where indel/multi went on scaffold 5, but I think almost everything is removed there (sex-chromosome?)
+- 6: One half way more reomoved than on other (sex-chromosome?)
+
+The out-of-HWE sites of black and blue often co-occur, while red is often doing it's own thing. There are definitely some sharp peaks in red that look interesting, indicating that sites out of HWE maybe should not be removed. I think I will do FST with both just to be sure and in line with recommendations from that paper.  
+
+The SNPs are quite evenly distributed on most scaffolds, also on 6.
+
+The rest of the scaffolds I will just paste together.  
+
+```{r small scaff plots}
+smallscafs <- filter(allpos, scaffold %in% unique(allpos$scaffold)[34:length(unique(allpos$scaffold))])
+nrow(smallscafs)/nrow(allpos)*100 # that's 6% of positions
+# I would still like to have a numerical position so an additive position
+smsclength <- smallscafs %>% group_by(scaffold) %>% summarise(end = max(position)) # get lengths
+smsclength$scafNR <- as.numeric(str_split_i(smsclength$scaffold, "_",3))  # order by scaffold number
+smsclength <- smsclength[order(smsclength$scafNR),]
+# Make a cumulative sum of the chromosome lengths
+smsclength$add<-c(0,cumsum(smsclength$end)[1:nrow(smsclength)-1]) # tells what number too add to each position
+# add to each position
+smallscafs$add_pos <- smallscafs$position + unname(unlist(smsclength[match(smallscafs$scaffold,smsclength$scaffold),"add"]))
+# get overview
+summary(smallscafs)
+# get new additive scaffold ends
+smsclength$add_end <- smsclength$end + smsclength$add
+
+## plot as before
+counts <- smallscafs %>% count(type)
+# get x postition for labels
+xr <- range(smallscafs$add_pos, na.rm = TRUE)
+label_x <- seq(xr[1], xr[2], length.out = nrow(counts))
+# pick y-position for labels (adjust as needed)
+ylim <- ggplot_build(
+   ggplot(smallscafs, aes(add_pos)) + geom_density()
+)$layout$panel_params[[1]]$y.range[2]
+# plot
+ggplot(smallscafs, aes(x = add_pos, colour = type)) +
+  geom_density() +
+  geom_text(
+    data = counts %>% mutate(x = label_x, y = ylim * 1.05),
+    aes(x = x, y = y, label = n))+
+  sapply(smsclength$add_end[1:20], function(xint) geom_vline(aes(xintercept = xint), alpha = 0.5))+ # add ends of scaffolds, takes for ever and way too close so only 20
+  ggtitle("rest of scaffolds")+
+  xlab("Additive postion on smaller scaffolds")+ylab("density")+
+  scale_color_manual(values = c(hweblack="black",hweblue="blue",hwered="red",indel_multi="green",SNP="orange",wrong_depth="purple"))+
+  theme_pubr()
+
+
+```
+
+We see the same trends as before. The vertical lines are the ends of the first 20 scaffolds (which are the 20 longest of the short ones), which become closer and closer. The density function creates an illusion of smooth transitions between scaffolds, but one should probably interpret this quite carefully.  
+
+
+
+
+

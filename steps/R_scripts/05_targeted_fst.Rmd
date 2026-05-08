@@ -1,0 +1,1338 @@
+---
+title: "Targeted $F_{ST}$ analysis"
+author: "Lea Huber"
+date: "`r Sys.Date()`"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,fig.height = 4, fig.width = 6, fig.align = 'center',fig.pos = "h")
+knitr::opts_knit$set(root.dir = "/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+pacman::p_load(tidyverse,knitr,kableExtra,ggpubr,FSA,ggbreak,wesanderson)
+```
+
+Here I analyse population differentiation between primarily the "blue" and "red" subspecies of common ostrich (*Struthio camelus australis* and *Struthio camelus massaicus*). For this, I identified the position of differentially expressed genes in the ostrich genome (genes that are of interest as per the differential expression analysis with glmmSeq), added differing numbers of bp up and downstream of the coding regions to include possible regulatory regions, and calculated $\pi$, $d_{xy}$ and $F_{ST}$ between the subspecies from differently filtered vcf files.  
+
+I test the following hypotheses:  
+
+* Genes involved in the distinct response are freer to evolve and therefore show higher differentiation between all populations compared to the shared response genes. They are also crucial for the blues which live in highly fluctuating environments and are thus expected to have high differentiation in red-blue comparison
+  + Alternative hypothesis: shared response genes are the ones that matters for adaptation to fluctuating environments and so these are under stronger selection, and therefore show higher $F_{ST}$ between blue and red than distinct genes
+* Genes involved in the cold response are more important in the blue subspecies and thus have higher differentiation compared to genes involved in the heat response, which are crucial everywhere and thus conserved and thus should have lower differentiation in all comparisons
+  + Alternatively higher differentiation in heat genes
+
+Analyses: 
+1.	Measures of variation and differentiation focusing on the candidate genes
+a.	Contrasting shared vs distinct genes
+b.	Contrasting hot vs cold genes
+
+# Without HWE filtering  
+
+Here I added 500 bp just on the start codon site to each gene region.  
+
+```{r load data}
+# fst and other pop stats
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+Popstats <- read.csv("data/FstTargeted/monobiallelic.500bp_noint.regionsOI_fst.csv")
+regInfo <- read.table("data/FstTargeted/regionsOI_500bp_promoter.with_names.bed", col.names = c("scaffold","start","end","geneID", "start_codon"))
+snp_counts <- read.table("data/FstTargeted/monobiallelic.500bp_promoter.snp_counts.bed", col.names = c("scaffold","start","end","snps"))
+
+# add gene ids and snp counts to the pop stats df
+Popstats <- left_join(Popstats,regInfo, by = join_by(scaffold,start,end))
+Popstats <- left_join(Popstats,snp_counts, by = join_by(scaffold,start,end))
+
+tempcols2 = c(shared = "#6800a4", cold = "#377EB8", hot = "#E41A1C")
+
+# gene expression results from glmmSeq
+load("../ChamberTempExp/data/working/RNAseq_countdata/NewPHgenesForGO.RData")
+bothdown$cat4 <- rep("bothdown",nrow(bothdown))
+bothup$cat4 <- rep("bothup",nrow(bothup))
+hotdown$cat4 <- rep("hotdown",nrow(hotdown))
+hotup$cat4 <- rep("hotup",nrow(hotup))
+colddown$cat4 <- rep("colddown",nrow(colddown))
+coldup$cat4 <- rep("coldup",nrow(coldup))
+hotupcolddown$cat4 <- rep("hotupcolddown",nrow(hotupcolddown))
+hotdowncoldup$cat4 <- rep("hotdowncoldup",nrow(hotdowncoldup))
+
+shared_genes <- c(bothdown$gene,bothup$gene,hotdowncoldup$gene,hotupcolddown$gene)
+hot_genes <- c(hotup$gene,hotdown$gene)
+cold_genes <- c(coldup$gene,colddown$gene)
+
+gene_cats <- rbind(hotup,hotdown,coldup,colddown,hotupcolddown,hotdowncoldup,bothup,bothdown)
+gene_cats$category1 <- ifelse(gene_cats$colour == "hotandcold","shared","distinct")
+gene_cats$category2 <- gene_cats$colour
+gene_cats[which(gene_cats$category2 == "hotandcold"),"category2"] <- "shared"
+
+# add gene category to Popstats
+Popstats <- full_join(Popstats,dplyr::select(gene_cats, !colour), by = join_by(geneID == gene))
+
+```
+
+```{r end on scaffold, include=FALSE}
+# I made sure that they don's start before position 1, but the regions could go over end of scaffold
+# does that happen? What are the consequences (error or just calculates with sites that are there?)
+scaff_ends <- read.table("QC/VCFstats/reference_scaffoldlength.txt", col.names = c("scaffold","scaff_end"))
+Popstats <- left_join(Popstats,scaff_ends) # just add it to popstats 
+which(Popstats$end > Popstats$scaff_end) # 4 of those have no data because they are on <1000 scaffolds
+# one has no data for some other reason
+# and two do have data, with a mid and nr of sites that makes sense, so it just takes the actual end of the region for calculation no problem
+```
+ 
+```{r filter}
+# remove NA's and age interaction genes
+Popstats <- filter(Popstats, !is.na(Fst_blue_red) &
+                     snps > 10) # set minimum nr of snps
+
+```
+
+Get some overview of the data and do some checks.  
+
+```{r checks, include=FALSE}
+summary(Popstats)
+table(duplicated(shared_genes))
+table(duplicated(hot_genes))
+table(duplicated(cold_genes))
+
+# check if the thing with the start codon makes sense
+plot(Popstats$end, Popstats$start_codon)
+abline(0,1) # yes it always seems to be very close
+plot(Popstats$end - Popstats$start_codon, ylim = c(0,3000)) # many are at 500
+plot(Popstats$start_codon - Popstats$start, ylim = c(0,3000))
+# looks good
+```
+
+Maybe the number of sites or the number of SNPs influences the $F_{ST}$, so let's check that. 
+
+```{r site or snp influence, fig.show='hold', fig.width=3, fig.height=4}
+plot(Popstats$snps, Popstats$Fst_blue_red)
+plot(Popstats$sites, Popstats$Fst_blue_red)
+plot(Popstats$snps, Popstats$dxy_blue_red)
+plot(Popstats$sites, Popstats$dxy_blue_red)
+```
+
+Regions with few SNPs have a lot more variation in $F_{ST}$, maybe because then there would be more error associated with it?  
+
+What about in interaction with SNP density, so regions with many SNP's compared to the number of sites, or few.  
+
+```{r missing sites and snp density, fig.show='hold', fig.width=3, fig.height=4}
+Popstats$missingSites <- (Popstats$end - Popstats$start) - Popstats$sites
+hist(Popstats$missingSites) # there're very few negative
+# which(Popstats$missingSites < 0) # 2
+ggplot(Popstats, aes(x = end - start, y = sites, colour = Fst_blue_red))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+
+ggplot(Popstats, aes(x = sites, y = snps, colour = missingSites))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+ggplot(Popstats, aes(x = snps/sites, y = Fst_blue_red))+
+  geom_point(alpha = 0.5)+
+  theme_pubr()
+
+```
+
+Most have quite few missing sites. There are two with a negative number, both have very few snps (0 and 1) and thus some missing values anyway. But overall the number of sites makes sense when comparing it to end - start now.  
+
+The number of SNPs correlates well with the number of sites. When we look at how the density might influence $F_{ST}$ it does not seem like it does when looking at nr of sites or region length.  
+
+
+## Shared vs. distinct genes 
+
+```{r plot shared vs distinct}
+Popstats[which(Popstats$category2 == "cold"), "p_hvb"] <- NA # makes looking at p-values easier
+ggplot(Popstats, aes(x = category1, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+```{r shared vs distinct stats}
+# is Fst normally distributed?
+plot(density(Popstats$Fst_blue_red)) 
+shapiro.test(filter(Popstats, category1 == "shared")$Fst_blue_red) # p < 0.05 -> no
+shapiro.test(filter(Popstats, category1 == "distinct")$Fst_blue_red) # p < 0.05 -> no
+# -> use Mann-whitney means comparison test (unpaired wilcoxon)
+# are they significantly different?
+wilcox.test(filter(Popstats, category1 == "shared")$Fst_blue_red, filter(Popstats, category1 == "distinct")$Fst_blue_red, paired = FALSE) # p > 0.05 
+```
+
+There is no difference.  
+
+## Hot vs cold genes 
+
+```{r plot hot vs cold}
+ggplot(filter(Popstats, category2!= "shared"), aes(x = category2, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+```{r hot vs cold stats}
+# is Fst normally distributed?
+shapiro.test(filter(Popstats, category2 == "hot")$Fst_blue_red) # p < 0.05 -> no
+shapiro.test(filter(Popstats, category2 == "cold")$Fst_blue_red) # yes actually but doesn't matter (and power doubts)
+# -> use Mann-whitney means comparison test (unpaired wilcoxon)
+# are they significantly different?
+wilcox.test(filter(Popstats, category2 == "hot")$Fst_blue_red, filter(Popstats, category2 == "cold")$Fst_blue_red, paired = FALSE) # p > 0.05 
+```
+
+There is no difference.  
+
+
+# With 250 bp promoter on both sides
+
+I reran $F_{ST}$ calculation but this time I added 250 bp on both sides
+
+```{r load data 500, include=FALSE}
+# fst and other pop stats
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+Popstats250 <- read.csv("data/FstTargeted/monobiallelic.250bp_bothsides.regionsOI_fst.csv")
+regInfo250 <- read.table("data/FstTargeted/regionsOI_250bp_bothsides.with_names.bed", col.names = c("scaffold","start","end","geneID"))
+snp_counts250 <- read.table("data/FstTargeted/monobiallelic.250bp_bothsides.snp_counts.bed", col.names = c("scaffold","start","end","snps"))
+# add gene ids and snp counts to the pop stats df
+Popstats250 <- full_join(Popstats250,regInfo250, by = join_by(scaffold,start,end))
+Popstats250 <- full_join(Popstats250,snp_counts250, by = join_by(scaffold,start,end))
+
+# add gene category to Popstats
+Popstats250 <- full_join(Popstats250,dplyr::select(gene_cats, !colour), by = join_by(geneID == gene))
+summary(Popstats250)
+
+# check which genes go over scaffold end
+Popstats250 <- left_join(Popstats250,scaff_ends)
+which(Popstats250$end > Popstats250$scaff_end) # the same ones except one less
+```
+
+```{r filter 250}
+# remove NA's and age interaction genes
+Popstats250 <- filter(Popstats250, !is.na(Fst_blue_red) &
+                     snps > 1) # set minimum nr of snps
+
+```
+
+### Checks
+
+How do number of sites & SNPs and $F_{ST}$ compare to the 500 bp promoter above?
+
+```{r compare 1000 500 sites, fig.show='hold', fig.width=3, fig.height=4}
+# first make genes in same order
+# Popstats$geneID == Popstats250$geneID # there are 5 switched because g18385 is at a different place, the start position order of some close together genes changed
+Popstats250 <- Popstats250[match(Popstats$geneID,Popstats250$geneID),] # put them in same order
+
+plot(Popstats$sites - Popstats250$sites)
+Popstats250$missingSites <- (Popstats250$end - Popstats250$start) - Popstats250$sites
+plot(Popstats250$missingSites, Popstats$missingSites)
+abline(0,1)
+mean(Popstats$missingSites)
+mean(Popstats250$missingSites)
+```
+
+We can see that it's basically the same, which makes sense because it's the same promoter size but just split this time. There seem to be a bit more sites in the 250 bp split promotor regions set.  
+
+```{r compare 1000 500 snps}
+plot(Popstats$snps, Popstats250$snps)
+abline(0,1) # nr of snps
+```
+
+Likewise, the number of SNPs is basically the same.  
+
+### Compare $F_{ST}$
+
+Let's compare the $F_{ST}$ of the regions with assumed 1000 bp promoters with that of the new, 500 bp on one side.
+
+```{r compare 500 1000}
+plot(Popstats$Fst_blue_red,Popstats250$Fst_blue_red)
+abline(0,1)
+md <- max(na.omit(abs(Popstats$Fst_blue_red - Popstats250$Fst_blue_red)))
+print(paste0("Max difference: ", md))
+```
+
+It changed a quite a bit in some genes, but in most it stayed the same more or less. So let's look at the new results!  
+
+## Shared vs distinct
+
+
+```{r plot shared vs distinct 500}
+Popstats250 <- filter(Popstats250, !is.na(category1))
+max(filter(Popstats250, category2 != "cold")$p_hvb) #  0.009816706, perfect
+Popstats250[which(Popstats250$category2 == "cold"), "p_hvb"] <- NA # makes looking at p-values easier
+ggplot(Popstats250, aes(x = category1, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+```{r shared vs distinct stats 500}
+Popstats250 <- filter(Popstats250, !is.na(Fst_blue_red)) # NAs are annoying for stats
+# is Fst normally distributed?
+# plot(density(Popstats250$Fst_blue_red)) # weeeelllll
+shapiro.test(filter(Popstats250, category1 == "shared")$Fst_blue_red) # p < 0.05 -> no
+shapiro.test(filter(Popstats250, category1 == "distinct")$Fst_blue_red) # p < 0.05 -> no
+# -> use Mann-whitney means comparison test (unpaired wilcoxon)
+# are they significantly different?
+wilcox.test(filter(Popstats250, category1 == "shared")$Fst_blue_red, filter(Popstats250, category1 == "distinct")$Fst_blue_red, paired = FALSE) # p > 0.05 
+```
+
+There is no difference.  
+
+## Hot vs cold genes 
+
+```{r plot hot vs cold 500}
+ggplot(filter(Popstats250, category2!= "shared"), aes(x = category2, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+```{r hot vs cold stats 500}
+# is Fst normally distributed?
+shapiro.test(filter(Popstats250, category2 == "hot")$Fst_blue_red) # p < 0.05 -> no
+shapiro.test(filter(Popstats250, category2 == "cold")$Fst_blue_red) # p < 0.05 -> no
+# -> use Mann-whitney means comparison test (unpaired wilcoxon)
+# are they significantly different?
+wilcox.test(filter(Popstats250, category2 == "hot")$Fst_blue_red, filter(Popstats250, category2 == "cold")$Fst_blue_red, paired = FALSE) # p > 0.05 
+```
+
+There is no difference. And all results look very similar to before
+
+
+# $\pi$ and $d_{xy}$ 
+
+I also calculated $\pi$ and $d_{xy}$ so let's look at those and their relationship with $F_{st}$ to find out more about the genes and how they differ between populations.  
+
+$d_{xy}$ is the between population nucleotide diversity, while $\pi$ is the within population nucleotide diversity. Another definition for $d_{xy}$ is the absolute divergence of populations (while $F_{st}$ is the relative differentiation).
+
+```{r pi pop comparison}
+Popstats_long <- pivot_longer(Popstats, cols = pi_black:pi_red, names_to = "pop", names_prefix = "pi_", values_to = "pi")
+ggplot(Popstats_long, aes(x = pop, y = pi))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(aes(colour = scaffold), alpha = 0.3)+
+  theme_pubr()+
+  theme(legend.position = "none")
+
+ggplot(Popstats, aes(x = pi_red, y = pi_blue, colour = dxy_blue_red))+
+  geom_point(alpha = 0.3)+
+  geom_abline(slope = 1, intercept =0)+
+  theme_pubr()
+
+shapiro.test(filter(Popstats_long, pop == "red")$pi) # p < 0.05 -> not normal
+mod <- lm(pi ~ pop, Popstats_long)
+shapiro.test(mod$residuals) # p < 0.05 -> not normal
+# -> use Kruskal-wallis means comparison test
+# are they significantly different?
+test <- kruskal.test(pi ~ pop, Popstats_long) # p < 0.05 -> yes they are significantly different!
+# but which? -> post hoc
+dunnTest(pi ~ pop, Popstats_long, method = "bh") # blue pi is significantly bigger than red
+```
+
+Blue is significantly, more diverse than red in the temperature related genes, but just a bit.
+Could pi be influenced by region length or nr of snps?
+
+```{r pi vs sites and snips, fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(Popstats, aes(x = sites, y = pi_blue))+
+  geom_point(alpha = 0.7)+
+  ylim(c(0,0.006))+
+  theme_pubr(base_size = 10)
+ggplot(Popstats, aes(x = snps, y = pi_red))+
+  geom_point(alpha = 0.5)+
+  scale_color_manual(values = tempcols2)+
+  theme_pubr(base_size = 10)
+
+```
+
+Like with the between population measures, variation in $\pi$ is higher in low snp, small windows and stabilises with bigger ones.  
+
+```{r pi vs fst, fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(Popstats, aes(x = Fst_blue_red, y = pi_blue, colour = sites))+
+  geom_point(alpha = 0.7)+
+  ylim(c(0,0.006))+
+  theme_pubr(base_size = 10)
+ggplot(Popstats, aes(x = Fst_blue_red, y = pi_red, colour = category2))+
+  geom_point(alpha = 0.5)+
+  scale_color_manual(values = tempcols2)+
+  theme_pubr(base_size = 10)
+
+```
+
+There seems to be a  negative relationship between $\pi$ and $F_{st}$, especially at the extreme ends, while there are also many genes that are intermediate in both. So, genes that are very different in the two populations have low nucleotide diversity within populations, which is maybe a property from calculating $F_{st}$. There are also a few genes with high $\pi$ and low $F_{st}$, so that are quite diverse in each population, but not in a different way.  
+
+There's still a caviat here, because according to literature, one should be careful with comparing Fst between loci with very different within-population variation (Charlesworth (1998), via Cruickshank and Hahn (2014)). 
+
+What's the relationship between pi and dxy?
+
+
+```{r pi vs dxy, fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(Popstats, aes(x = dxy_blue_red, y = pi_blue))+
+  geom_point(alpha = 0.5)+
+  scale_color_manual(values = tempcols2)+
+  geom_abline(slope = 1, intercept = 0)+
+  theme_pubr(base_size = 10)
+ggplot(Popstats, aes(x = dxy_blue_red, y = pi_red))+
+  geom_point(alpha = 0.5)+
+  scale_color_manual(values = tempcols2)+
+  geom_abline(slope = 1, intercept = 0)+
+  theme_pubr(base_size = 10)
+
+```
+
+They are heavily correlated.  
+
+```{r fst vs dxy, fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(Popstats, aes(x = dxy_blue_red, y = Fst_blue_red))+
+  geom_point(alpha = 0.5)+
+  xlim(c(0,0.006))+
+  theme_pubr(base_size = 10)
+
+```
+
+```{r dxy regionsOI 500, fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(Popstats, aes(x = sites, y = dxy_blue_red))+
+  geom_point()+
+  theme_pubr()
+
+ggplot(Popstats, aes(x = category1, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.3)+
+  theme_pubr(base_size = 10)+
+  theme(legend.position = "none")
+
+ggplot(filter(Popstats, category2 != "shared"), aes(x = category2, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.3)+
+  theme_pubr(base_size = 10)+
+  theme(legend.position = "none")
+
+```
+
+
+```{r pi regionsOI 500 for MAds, fig.show='hold', fig.width=3, fig.height=3.5}
+
+# New figure
+Popstats_Mads <- dplyr::select(Popstats, c(pi_black,geneID,cvb,hvb))
+Popstats_Mads <- Popstats_Mads %>% rename(cold = cvb, hot = hvb) %>%
+  pivot_longer(cols = c(cold,hot), names_to = "condition", values_to = "expr") %>%
+  filter(!is.na(expr))
+
+ggplot(Popstats_Mads, aes(x = condition, y = pi_black, colour = condition))+
+  geom_boxplot()+
+  #ylim(c(0,0.005))+ 
+  ylab("Nucleotide diversity (pi)")+ xlab("")+
+  scale_color_manual(values = c("#3879C9","#D04848"))+
+  theme_pubr(base_size = 25)+
+  theme(legend.position = "none")
+
+```
+
+```{r shared vs distinct stats dxy}
+wilcox.test(filter(Popstats, category1 == "shared")$dxy_blue_red, filter(Popstats, category1 == "distinct")$dxy_blue_red, paired = FALSE) # p > 0.05 
+
+wilcox.test(filter(Popstats, category2 == "hot")$dxy_blue_red, filter(Popstats, category2 == "cold")$dxy_blue_red, paired = FALSE) # p > 0.05 
+```
+
+P-value of a means comparison test between shared and distinct is 0.0596, with shared having higher absolute divergence. Does it get more different when only looking at more top genes, like top 50%?  
+
+```{r dxy top}
+# take top adjustable proportion, to get value that is at that border
+getmaxpval <- function(pvals, prop){
+  pvals <- sort(pvals)
+  maxpval <- pvals[round(length(pvals)*prop)]
+  return(maxpval)
+}
+# this only makes sense when the ones that belong to other category are NA,
+Popstats[which(Popstats$category2 == "hot"),"p_cvb"] <- NA
+Popstats_top05 <- filter(Popstats, p_hvb < getmaxpval(Popstats$p_hvb,0.7) | p_cvb < getmaxpval(Popstats$p_cvb,0.7)) # when either pval is below threshold I keep it
+ggplot(Popstats_top05, aes(x = category1, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.3)+
+  theme_pubr(base_size = 10)+
+  theme(legend.position = "none")
+wilcox.test(filter(Popstats_top05, category1 == "shared")$dxy_blue_red, filter(Popstats_top05, category1 == "distinct")$dxy_blue_red, paired = FALSE) # p > 0.05
+
+```
+
+No it does not get more different and less significant...  
+
+\newpage
+
+# With HWE filtering  
+
+```{r load HWE data}
+# fst and other pop stats
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+PopstatsHWE <- read.csv("data/FstTargeted/monobiallelic.HWE.500bp_noint.regionsOI_fst.csv")
+snp_countsHWE <- read.table("data/FstTargeted/monobiallelic.HWE.500bp_noint.snp_counts.bed", col.names = c("scaffold","start","end","snps"))
+# add gene ids and snp counts to the pop stats df
+PopstatsHWE <- full_join(PopstatsHWE,regInfo, by = join_by(scaffold,start,end))
+PopstatsHWE <- full_join(PopstatsHWE,snp_counts, by = join_by(scaffold,start,end))
+
+# add gene category to Popstats
+PopstatsHWE <- full_join(PopstatsHWE,dplyr::select(gene_cats, !colour), by = join_by(geneID == gene))
+
+```
+
+To check robustness of results to different filtering choices, here I re-analyse with variant data where variants out of Hardy-Weinberg equilibrium with a probability of 99% were removed (calculated separately for each subspecies). Let's compare the fst values first.  
+
+```{r filtering influence}
+# remove the 2 genes that didn't work in the other and put into same order
+PopstatsHWE <- filter(PopstatsHWE, geneID %in% Popstats$geneID)
+PopstatsHWE <- PopstatsHWE[match(Popstats$geneID,PopstatsHWE$geneID),]
+# PopstatsHWE$geneID == Popstats$geneID # good
+plot(Popstats$Fst_blue_red,PopstatsHWE$Fst_blue_red)
+abline(0,1)
+```
+
+With very few exceptions, the values seem to be basically the same. Only in a few genes HWE filtering seems to have lowered the $F_{ST}$ value a bit. Let's see if that changes the results at all.  
+
+## Shared vs. distinct genes 
+
+```{r plot shared vs distinct HWE}
+ggplot(Popstats, aes(x = category1, y = Fst_blue_red, colour = sites))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+
+## Hot vs cold genes 
+
+```{r plot hot vs cold HWE}
+ggplot(filter(PopstatsHWE, category2!= "shared"), aes(x = category2, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8)+
+  theme_pubr()
+
+```
+
+Very similar to before, thus results are robust to HWE filtering.  
+
+# Just top genes
+
+Effects might be masked by false positives, so let's just use the top genes of each category, in a way that also evens out the number of genes in each category a bit.  
+
+```{r fst top genes, fig.show='hold', fig.width=3, fig.height=3.5}
+# what's kind of the range of pvalues?
+# plot(density(filter(Popstats, category1 == "shared")$p_hvb)) # there seem to be a few far out ones, let's remove these
+# take top adjustable proportion, to get value that is at that border
+getmaxpval <- function(pvals, prop){
+  pvals <- sort(pvals)
+  maxpval <- pvals[round(length(pvals)*prop)]
+  return(maxpval)
+}
+# this only makes sense when the ones that belong to other category are NA
+Popstats[which(Popstats$category2 == "hot"),"p_cvb"] <- NA
+Popstats_top05 <- filter(Popstats, p_hvb < getmaxpval(Popstats$p_hvb,0.5) | p_cvb < getmaxpval(Popstats$p_cvb,0.5)) # when either pval is below threshold I keep it
+
+wilctest <- wilcox.test(filter(Popstats_top05, category1 == "shared")$Fst_blue_red, filter(Popstats_top05, category1 == "distinct")$Fst_blue_red, paired = FALSE) # p > 0.05 
+ggplot(Popstats_top05, aes(x = category1, y = Fst_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.4)+
+  ggtitle(paste("Top 50 %, wilcox pval:",round(wilctest$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+wilctest <- wilcox.test(filter(Popstats, category2 == "hot")$dxy_blue_red, filter(Popstats, category2 == "cold")$dxy_blue_red, paired = FALSE) # p > 0.05 
+ggplot(filter(Popstats_top05, category1 == "distinct"), aes(x = category2, y = Fst_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.4)+
+  ggtitle(paste("Top 50 %, wilcox pval:",round(wilctest$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+
+Popstats_top05 <- filter(Popstats, p_hvb <= getmaxpval(Popstats$p_hvb,0.1) | p_cvb <= getmaxpval(Popstats$p_cvb,0.1)) # when either pval is below threshold I keep it
+
+wilctest <- wilcox.test(filter(Popstats_top05, category1 == "shared")$Fst_blue_red, filter(Popstats_top05, category1 == "distinct")$Fst_blue_red, paired = FALSE) # p > 0.05 
+ggplot(Popstats_top05, aes(x = category1, y = Fst_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.4)+
+  ggtitle(paste("Top 20 %, wilcox pval:",round(wilctest$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+```
+
+When only using genes with p-values in either hot or cold in the bottom 50 % (top 2 plots), or 20 % (bottom 2 plots) the difference between distinct and shared gets a bit bigger (the $F_{st}$ of shared genes seems to get lower), but it's never significant. Also, most of the more significant cold genes seem to be in the shared and not in the distinct.  
+
+
+# Further categorise genes
+
+I have categorised the genes if they are upregulated in heat, down in cold and up in heat, etc. Maybe there are differences in $F_{ST}$ between these categories?  
+
+```{r load gene functions}
+load("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/ChamberTempExp/data/working/functional_genes.RData")
+# make a nice table
+gene_fct <- data.frame(geneSym = c(gene_sym_bothdown,gene_sym_bothup,gene_sym_hotdown,gene_sym_hotup,gene_sym_hotdowncoldup,gene_sym_hotupcolddown),
+                       category3 = c(rep("bothdown",length(gene_sym_bothdown)), rep("bothup",length(gene_sym_bothup)), rep("hotdown",length(gene_sym_hotdown)),
+                               rep("hotup",length(gene_sym_hotup)), rep("hotdowncoldup",length(gene_sym_hotdowncoldup)),rep("hotupcolddown",length(gene_sym_hotupcolddown))))
+gene_fct <- gene_fct %>%
+  count(geneSym, category3, name = "count")
+# need to connect this to gene IDs
+gene_fct <- left_join(gene_fct, subset(GO_annotation, select = c(query,Preferred_name)), by = join_by(geneSym == Preferred_name))
+# some gene symbols have multiple matching IDs...
+# now let's add the symbols to the Popstats
+Popstats <- left_join(Popstats,gene_fct, by = join_by(geneID == query))
+# there's one hotdown in shared, that shouldn't be. It's only because the symbol matches multiple IDs
+Popstats[which(Popstats$category3 == "hotdown" & Popstats$category1 == "shared"), "geneSym"] <- NA
+Popstats[which(Popstats$category3 == "hotdown" & Popstats$category1 == "shared"), "category3"] <- NA
+```
+
+
+```{r plot direction categories}
+ggplot(Popstats, aes(x = category1, y = Fst_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+# are they significantly different?
+test <- kruskal.test(Fst_blue_red ~ cat4, Popstats) # p > 0.05 -> no not different
+
+ggplot(filter(Popstats, category1 == "distinct"), aes(x = category2, y = Fst_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+# are they significantly different?
+test <- kruskal.test(Fst_blue_red ~ cat4, filter(Popstats,category1 == "distinct")) # p > 0.05 -> no not different
+
+```
+
+There are maybe some trends (hotupcolddown looks lower than the others) but nothing is significant.  
+
+For $d_{xy}$ it looked like there might be a trend towards shared having higher $d_{xy}$ than distinct, let's see if that is due to some sub-categories.  
+
+```{r plot direction categories dxy}
+ggplot(Popstats, aes(x = category1, y = dxy_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+# are they different?
+test <- kruskal.test(dxy_blue_red ~ cat4, Popstats) 
+test # there are differences!
+# but which? -> post hoc
+dunnTest(dxy_blue_red ~ cat4, Popstats, method = "bh") # hotdown - hotup are different (p 0.0011)
+
+ggplot(filter(Popstats, category1 == "distinct"), aes(x = category2, y = dxy_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+# are they significantly different?
+test <- kruskal.test(dxy_blue_red ~ cat4, filter(Popstats,category1 == "distinct")) # p > 0.05 
+test # there are differences!
+dunnTest(dxy_blue_red ~ cat4, filter(Popstats,category1 == "distinct"), method = "bh") # hotdown - hotup are different (p 0.00033)
+
+```
+
+Hot down and hot up significantly differ from each other in absolute divergence, or in nucleotide diversity, between red and blue populations. Genes upregulated in heat are more divergent than genes downregulated in heat. 
+
+Thus, the hotup genes have high absolute divergence, but are on the low side in relative divergence (see above), indicating that they vary a lot, but in the same way across subspecies.  
+
+When looking at the other p-values, some are significant before multiple testing, so removing categories with less than 10 genes could increase power a lot, let's try that.  
+
+```{r plot direction categories bigger 10 dxy}
+table(Popstats$cat4)
+Popstats_b10 <- droplevels(filter(Popstats, ! cat4 %in% c("bothup","coldup","hotupcolddown")))
+# are they significantly different?
+test <- kruskal.test(dxy_blue_red ~ cat4, Popstats_b10)
+test # there are differences!
+ggplot(Popstats_b10, aes(x = category1, y = dxy_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 17)+
+  theme(legend.title = element_blank())
+
+dunnTest(dxy_blue_red ~ cat4, Popstats_b10, method = "bh") 
+```
+
+Now two more are significant, namely colddown - hotup, and bothdown - hotup, and hotdowncoldup - hotup is close. So basically hotup is different from all the other ones. Let's do the same with $\pi$.  
+
+```{r plot direction categories bigger 10 pi,fig.show='hold', fig.width=3, fig.height=3.5}
+# are they significantly different?
+test <- kruskal.test(pi_red ~ cat4, Popstats_b10)
+test 
+
+ggplot(Popstats_b10, aes(x = category1, y = pi_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 17)+
+  theme(legend.title = element_blank())
+dunnTest(pi_red ~ cat4, Popstats_b10, method = "bh") 
+
+test <- kruskal.test(pi_blue ~ cat4, Popstats_b10)
+test 
+
+ggplot(Popstats_b10, aes(x = category1, y = pi_blue,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 17)+
+  theme(legend.title = element_blank())
+# but which? -> post hoc
+dunnTest(pi_blue ~ cat4, Popstats_b10, method = "bh") 
+
+
+```
+
+Here we see that indeed nucleotide diversity in hotup is high in all populations. (I removed an outlier in this plot.) When testing differences in $\pi$ between categories (disregarding population), we see that there are multiple significant differences: colddown - hotup, hotdown - hotup, bothdown - hotup, hotdowncoldup - hotup,bothdown - hotupcolddown,colddown - hotupcolddown and hotdown - hotupcolddown. So basically, hotup and hotupcold down are different from many other ones.  
+
+```{r plot for publication, include=FALSE}
+
+## dxy
+# reorder cat4 so it order is same as down
+Popstats_b10$cat4 <- factor(Popstats_b10$cat4, levels = c("colddown","hotdown","hotup","bothdown","hotdowncoldup"))
+# maybe filter snps > 10
+Popstats_b10 <- filter(Popstats_b10, snps > 10)
+test <- kruskal.test(dxy_blue_red ~ cat4, Popstats_b10)
+dunnTest(dxy_blue_red ~ cat4, Popstats_b10, method = "bh") # bothdown - hotup, colddown - hotup & hotdown - hotup are different
+ggplot(Popstats_b10, aes(x = category1, y = dxy_blue_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_signif(annotations = "**", y_position = 0.0136, xmin = 1.25, xmax = 1.8, tip_length = 0.005, textsize = 5, colour = "black")+ # bothdown - hotup
+  geom_signif(annotations = "*", y_position = 0.0139, xmin = 0.7, xmax = 1.22, tip_length = 0.005, textsize = 5, colour = "black")+ # colddown - hotup
+  geom_signif(annotations = "***", y_position = 0.0136, xmin = 1, xmax = 1.22, tip_length = 0.005, textsize = 5, colour = "black")+ #  hotdown - hotup
+  geom_signif(annotations = "*", y_position = 0.0139, xmin = 1.25, xmax = 2.1, tip_length = 0.005, textsize = 5, colour = "black")+ #  hotdowncoldup - hotup
+  geom_hline(yintercept = 0.013, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.006, 0.013))+
+  scale_y_continuous(limits = c(0, 0.0143))+
+  scale_x_discrete(labels = c("Distinct","Shared"))+
+  scale_colour_manual(values = c( "#ff0000", "#f8c75d", "#f98400", "#00a08a", "#5bbcd6" ),
+                      labels = c(expression(cold[down]),expression(hot[down]),expression(hot[up]),expression(cold[down]+hot[down]), expression(cold[up]+hot[down])))+
+  xlab("Response to heat or cold")+ylab("Absolute differentiation (Dxy)")+
+  theme_pubr(base_size = 17)+
+  theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank())
+
+
+
+## pi
+# put them into one plot, so need to reshape
+Popstats_b10_pilong <- pivot_longer(Popstats_b10, pi_black:pi_red, names_to = "pop", names_prefix = "pi_", values_to = "pi")
+# are they significantly different?
+testR <- kruskal.test(pi_red ~ cat4, Popstats_b10)
+testB <- kruskal.test(pi_blue ~ cat4, Popstats_b10)
+dunnTest(pi_red ~ cat4, Popstats_b10, method = "bh")
+dunnTest(pi_blue ~ cat4, Popstats_b10, method = "bh")
+ggplot(filter(Popstats_b10_pilong, pop != "black"), aes(x = category1, y = pi, colour = cat4, shape = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7, size = 1.9)+
+  geom_signif(annotations = "**", y_position = 0.0143, xmin = 1.28, xmax = 1.8, tip_length = 0.03,textsize = 5, colour = "black")+ # bothdown - hotup red
+  geom_signif(annotations = "*", y_position = 0.0143, xmin = 0.75, xmax = 1.24, tip_length = 0.03, textsize = 5, colour = "black")+ # colddown - hotup red
+  geom_signif(annotations = "***", y_position = 0.0135, xmin = 1, xmax = 1.24, tip_length = 0.03, textsize = 5, colour = "black")+ #  hotdown - hotup red
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.0055, 0.012), scales = 0.2, space = 0.2)+
+  scale_y_continuous(limits = c(0, 0.015))+
+  scale_x_discrete(labels = c("Distinct","Shared"))+
+  scale_colour_manual(values = c( "#ff0000", "#f8c75d", "#f98400", "#00a08a", "#5bbcd6" ),
+                      labels = c(expression(cold[down]),expression(hot[down]),expression(hot[up]),expression(cold[down]+hot[down]), expression(cold[up]+hot[down])))+
+  scale_shape_discrete(labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
+  guides(shape = guide_legend(position = "left", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))))+
+  xlab("Response to heat or cold")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank())
+
+
+
+```
+
+
+## Further constrasting hotup and hotdown
+
+The results in the previous sections suggest that there are differences in nucleotide diversity between (and within?) populations in genes that are up or downregulated in heat. There are more such up- and downregulated in the shared category and there seem to be similar trends in these. To confirm this result, I here categorise genes into being either up- or downregulated in heat, no matter how they are expressed in cold (so including shared genes).
+
+```{r hot cats, fig.show='hold',fig.height=3.5,fig.width=3}
+Popstats$cat5 <- sub("cold....", "", Popstats$cat4)
+Popstats$cat5 <- sub("cold..", "", Popstats$cat5)
+Popstats$cat5 <- sub("both", "hot", Popstats$cat5)
+Popstats[which(Popstats$cat5 == ""),"cat5"] <- NA
+Popstats$cat5 <- as.factor(Popstats$cat5)
+levels(Popstats$cat5) # noice
+
+library(brunnermunzel)
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$Fst_blue_red, filter(Popstats, cat5 == "hotdown")$Fst_blue_red)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$dxy_blue_red, filter(Popstats, cat5 == "hotdown")$dxy_blue_red)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = dxy_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$pi_red, filter(Popstats, cat5 == "hotdown")$pi_red)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = pi_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$pi_blue, filter(Popstats, cat5 == "hotdown")$pi_blue)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = pi_blue, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+```
+
+These are all definitely different between up and down.
+
+```{r hot sites}
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$sites, filter(Popstats, cat5 == "hotdown")$sites)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = sites))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+
+test <- brunnermunzel.test(filter(Popstats, cat5 == "hotup")$snps, filter(Popstats, cat5 == "hotdown")$snps)
+ggplot(filter(Popstats, !is.na(cat5)), aes(x = cat5, y = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Brunner Munzel p-value:",round(test$p.value,6)))+
+  theme_pubr(base_size = 10)
+```
+
+So there could be a bias due to differing gene lengths. Try taking a random subset of hotdown genes with similar lengths as the hotup genes and test differences in $\pi$ then.  
+
+```{r hotdown subset genelength}
+summary(filter(Popstats, cat5 == "hotup")$sites)
+plot(density(filter(Popstats, cat5 == "hotup")$sites))
+hotdown_sub <- filter(Popstats, cat5 == "hotdown" & sites <= 75400 & sites >= 800) # just rounded min and max of hotup a bit
+plot(density(hotdown_sub$sites)) # there's too many, and we need to thin out the top a bit. How many over 20000 are there in hotup?
+length(which(filter(Popstats, cat5 == "hotup")$sites > 20000)) # only 5, but I don't need quite so few, let's do 7 so *1.4
+keepgenes <- hotdown_sub[which(hotdown_sub$sites > 20000)[round(runif(7,1,136))],"geneID"] # these are the genes I'll keep with randowm rows that are above 20000
+hotdown_sub <- filter(hotdown_sub, sites < 20000 | geneID %in% keepgenes)
+
+plot(density(hotdown_sub$sites)) 
+
+length(which(filter(Popstats, cat5 == "hotup")$sites > 11000 & filter(Popstats, cat5 == "hotup")$sites< 20000)) # another 5 -> 7
+keepgenes2 <- hotdown_sub[which(hotdown_sub$sites > 11000 & hotdown_sub$sites < 20000)[round(runif(7,1,64))],"geneID"] # and these above 11000 (more or less 3rd quantile of hotup)
+hotdown_sub <- filter(hotdown_sub, sites < 11000 | geneID %in% keepgenes | geneID %in% keepgenes2)
+# and now just randomly reduce a bit more to 43 * 1.4 = 61
+hotdown_sub <- hotdown_sub[round(runif(61,1,nrow(hotdown_sub))),]
+
+plot(density(hotdown_sub$sites)) 
+summary(hotdown_sub$sites) 
+
+Popstats_hot <- rbind(hotdown_sub, filter(Popstats, cat5 == "hotup"))
+
+## more systematic approach: randomly sample from each quantile bin
+summary(filter(Popstats, cat5 == "hotup")$sites) # by definition, there are about a quarter of genes in each quantile so 10-11
+# so get this number, or a bit more, from hotdown
+hotdown_sub <- filter(Popstats, cat5 == "hotdown" & sites <= 75500 & sites >= 700) # match overall distribution
+keepgenes1 <- unique(hotdown_sub[which(hotdown_sub$sites < 2344)[round(runif(13,1,26))],"geneID"])
+keepgenes2 <- unique(hotdown_sub[which(hotdown_sub$sites > 2344 & hotdown_sub$sites < 5014)[round(runif(13,1,16))],"geneID"])
+keepgenes3 <- unique(hotdown_sub[which(hotdown_sub$sites > 5014 & hotdown_sub$sites < 10456)[round(runif(13,1,57))],"geneID"]) 
+keepgenes4 <- unique(hotdown_sub[which(hotdown_sub$sites > 10456 & hotdown_sub$sites < 75500)[round(runif(12,1,204))],"geneID"]) 
+hotdown_sub <- filter(hotdown_sub,geneID %in% c(keepgenes1,keepgenes2,keepgenes3,keepgenes4))
+summary(hotdown_sub$sites)
+plot(density(hotdown_sub$sites))
+
+Popstats_hot <- rbind(hotdown_sub, filter(Popstats, cat5 == "hotup"))
+
+# run it a few times and save p values!
+
+# plot
+pval_sites <- brunnermunzel.test(filter(Popstats_hot, cat5 == "hotup")$sites, filter(Popstats_hot, cat5 == "hotdown")$sites)$p.value
+ggplot(Popstats_hot, aes(x = cat5, y = sites, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  ggtitle(paste("Brunner Munzel p-value:",round(pval_sites,6)))+
+  theme_pubr(base_size = 10)
+
+pval_piblu <- brunnermunzel.test(filter(Popstats_hot, cat5 == "hotup")$pi_blue, filter(Popstats_hot, cat5 == "hotdown")$pi_blue)$p.value
+ggplot(Popstats_hot, aes(x = cat5, y = pi_blue, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  ggtitle(paste("Brunner Munzel p-value:",round(pval_piblu,6)))+
+  theme_pubr(base_size = 10)
+
+pval_pired <- brunnermunzel.test(filter(Popstats_hot, cat5 == "hotup")$pi_red, filter(Popstats_hot, cat5 == "hotdown")$pi_red)$p.value
+ggplot(Popstats_hot, aes(x = cat5, y = pi_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  ggtitle(paste("Brunner Munzel p-value:",round(pval_pired,6)))+
+  theme_pubr(base_size = 10)
+
+pval_fst <- brunnermunzel.test(filter(Popstats_hot, cat5 == "hotup")$Fst_blue_red, filter(Popstats_hot, cat5 == "hotdown")$Fst_blue_red)$p.value
+ggplot(Popstats_hot, aes(x = cat5, y = Fst_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  ggtitle(paste("Brunner Munzel p-value:",round(pval_fst,6)))+
+  theme_pubr(base_size = 10)
+
+pval_dxy <- brunnermunzel.test(filter(Popstats_hot, cat5 == "hotup")$dxy_blue_red, filter(Popstats_hot, cat5 == "hotdown")$dxy_blue_red)$p.value
+ggplot(Popstats_hot, aes(x = cat5, y = dxy_blue_red, colour = p_hvb))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.7)+
+  ggtitle(paste("Brunner Munzel p-value:",round(pval_dxy,6)))+
+  theme_pubr(base_size = 10)
+
+if(exists("pvals")){
+  pvals <- c(pvals,pval_sites,pval_piblu,pval_pired,pval_fst,pval_dxy)
+} else {pvals <- c(pval_sites,pval_piblu,pval_pired,pval_fst,pval_dxy)}
+
+```
+
+OK I ran this twenty times (changed distribution calculation slightly after 10) and saved the p values, let's see what is robustly different and what is not.  
+
+```{r hot up down pvals}
+pdf <- data.frame(sites = pvals[seq(1,length(pvals),5)], pi_blue = pvals[seq(2,length(pvals),5)], pi_red = pvals[seq(3,length(pvals),5)], fst = pvals[seq(4,length(pvals),5)], dxy = pvals[seq(5,length(pvals),5)])
+summary(pdf)
+```
+
+It looks to me that $\pi$ red, $d_{xy}$ and probably also $\pi$ blue are definitely higher in hotup than in hotdown, but $F_{st}$ does not seem to differ (only significant in 4 out of 10). Meanwhile the number of sites was always similar as it should be.  
+
+Hotupcolddown has diverse functions like RNA processing, pseudouridine synthesis, fatty acid transport, negative regulation of (endo)peptidase activity, monocarboxylic acid transport, RNA processing, pseudouridine synthesis, fatty acid transport, negative regulation of (endo)peptidase activity and monocarboxylic acid transport. Hotup is all related to protein folding and stress response.  
+
+## Tajima's D
+
+There is literature reporting balancing selection in heat shock proteins, probably due to heterozygote advantage. Thus it could be worth it to corroborate this with some method. Tajima's D (the difference between the mean number of pairwise differences ($\pi$) and the number of segregating sites, each scaled so that they are expected to be the same in a neutrally evolving population of constant size) should be > 0 in the case of balancing selection, which means more haplotypes than nr of segregating sites, thus a lack of rare alleles.  
+
+```{r get tajima d data, include=FALSE}
+td_red <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.red.Tajima.D", header = TRUE)
+td_blue <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.blue.Tajima.D", header = TRUE)
+# delete nan rows
+td_red <- filter(td_red, !is.na(TajimaD))
+td_blue <- filter(td_blue, !is.na(TajimaD))
+
+# for red
+td_red$bin_end <- td_red$BIN_START + 350000
+# add values to region overlapping genes in popstats, scaffold by scaffold
+matchmat <- sapply(Popstats$start, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+diag(matchmat) 
+# so now match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+which(matchmat[,1])
+matches <- apply(matchmat,2, which)
+nmatches <- rep(0,nrow(Popstats))
+Popstats$td_red <- NA
+Popstats$td_red_snps <- NA
+for (i in 1:nrow(Popstats)){
+  candidates <- matches[[i]]
+  for (j in candidates){
+    if (td_red[j,"CHROM"] == Popstats[i,"scaffold"]){
+      Popstats[i,"td_red"] <- td_red[j,"TajimaD"]
+      Popstats[i,"td_red_snps"] <- td_red[j,"N_SNPS"] # this is to test if this matches 
+      nmatches[i] <- nmatches[i] + 1
+    }
+  }
+}
+nmatches
+
+# check nr of snps
+plot(Popstats$snps, Popstats$td_red_snps) # there are quite big differences in both directions and definitely a bias towards less 
+abline(0,1)
+Popstats$snp_diff <- Popstats$snps - Popstats$td_red_snps
+plot(Popstats$sites,Popstats$snp_diff) 
+
+## now for blue
+td_blue$bin_end <- td_blue$BIN_START + 350000
+# add values to region overlapping genes in popstats, scaffold by scaffold
+matchmat <- sapply(Popstats$start, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+diag(matchmat) 
+# match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+which(matchmat[,1])
+matches <- apply(matchmat,2, which)
+nmatches <- rep(0,nrow(Popstats))
+Popstats$td_blue <- NA
+Popstats$td_blue_snps <- NA
+for (i in 1:nrow(Popstats)){
+  candidates <- matches[[i]]
+  for (j in candidates){
+    if (td_blue[j,"CHROM"] == Popstats[i,"scaffold"]){
+      Popstats[i,"td_blue"] <- td_blue[j,"TajimaD"]
+      Popstats[i,"td_blue_snps"] <- td_blue[j,"N_SNPS"] # this is to test if this matches
+      nmatches[i] <- nmatches[i] + 1
+    }
+  }
+}
+nmatches
+
+## check nr of snps
+plot(Popstats$snps, Popstats$td_blue_snps) # looks the same as before
+abline(0,1)
+Popstats$snp_diff <- Popstats$snps - Popstats$td_blue_snps
+plot(Popstats$sites,Popstats$snp_diff) 
+```
+
+```{r tajima d above 10 cats}
+
+Popstats_b10 <- droplevels(filter(Popstats, ! cat4 %in% c("bothup","coldup","hotupcolddown")))
+
+## red
+# are they significantly different?
+test <- kruskal.test(td_red ~ cat4, Popstats_b10)
+test 
+ggplot(Popstats_b10, aes(x = category1, y = td_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_hline(yintercept = 0)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)+
+  theme(legend.title = element_blank())
+
+dunnTest(td_red ~ cat4, Popstats_b10, method = "bh") #bothdown - hotdowncoldup, colddown - hotdowncoldup and hotdown - hotdowncoldup are different
+
+## blue
+test <- kruskal.test(td_blue ~ cat4, Popstats_b10)
+test # no
+ggplot(Popstats_b10, aes(x = category1, y = td_blue,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_hline(yintercept = 0)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)+
+  theme(legend.title = element_blank())
+
+dunnTest(td_blue ~ cat4, Popstats_b10, method = "bh")
+
+```
+
+In the blue subspecies, there does not seem to be any differences in Tajima's D in these categories. However, in the red population, Tajima's D is higher in genes that are downregulated in heat and up in cold. Those had the second highest $\pi$ and $d_{xy}$ before but only by a little. We had expected hotup to have high Tajima's D due to possible balancing selection, but now it looks like those genes do not have a lack of rare alleles or more haplotypes than number of segregating sites.  
+
+### Slightly different Tajima's D calculation
+
+```{r get tajima d data 2, include=FALSE}
+td_red <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.red2.Tajima.D", header = TRUE)
+td_blue <- read.table("data/FstTargeted/monobiallelic.500bp_start.ageint.blue2.Tajima.D", header = TRUE)
+# delete nan rows
+td_red <- filter(td_red, !is.na(TajimaD))
+td_blue <- filter(td_blue, !is.na(TajimaD))
+
+# for red
+td_red$bin_end <- td_red$BIN_START + 10000
+# add values to region overlapping genes in popstats
+# now a bit more complicated because there could be more than one and not just start should be in it
+# so I do start and end and then take all pieces in between later
+matchmat_start <- sapply(Popstats$start, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+matchmat_end <- sapply(Popstats$end, function(x) x > td_red$BIN_START & x < td_red$bin_end) # rows from td, columns from popstats
+# match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+matches_start <- apply(matchmat_start,2, which)
+matches_end <- apply(matchmat_end,2, which)
+Popstats$td_red <- NA
+Popstats$what <- NA
+Popstats$start_cands <- 0
+Popstats$snps2 <- NA
+for (i in 1:nrow(Popstats)){
+  candidates_start <- matches_start[[i]]
+  candidates_end <- matches_end[[i]]
+  for (j in candidates_start){
+    if (td_red[j,"CHROM"] == Popstats[i,"scaffold"]){ # only for start on same scaffold (I expect there to be only one right candidate always)
+      # find matching end position
+      end <- candidates_end[which((j <= candidates_end & candidates_end < j + 40) | j == candidates_end)] # I expect end to be close, max 350000/10000 = 35 away, or the same
+      if (length(end) > 1){
+        if (td_red[end[1],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[1]
+        } else if (td_red[end[2],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[2]
+        }else{
+          Popstats[i,"what"] <- "weird_end"
+          next # this makes that it will jump to the next i (not j) 
+        }
+      } # if there are multpiple candidates, take which is on the same chromosome
+      if (is.numeric(end) & length(end) > 0){
+        Popstats[i,"td_red"] <- mean(td_red[j:end,"TajimaD"]) # take the average of all rows in between (if they are the same it will still work)
+        Popstats[i,"snps2"] <- sum(td_red[j:end,"N_SNPS"])
+        Popstats[i,"what"] <- paste0("end_exists_",end)
+      }else{ # else just take start
+        Popstats[i,"td_red"] <- td_red[j,"TajimaD"]
+        Popstats[i,"snps2"] <- td_red[j,"N_SNPS"]
+        Popstats[i,"what"] <- "end_missing"
+      }
+      # record what happened
+      Popstats[i,"start_cands"] <- Popstats[i,"start_cands"] +1
+    }
+  } # It could also happen for small chromosome that only the end is in a chunk
+  if (is.na(Popstats[i,"td_red"])){ # so in that case (when start is missing) check for ends and take them
+    for (e in candidates_end){
+      if (td_red[e,"CHROM"] == Popstats[i,"scaffold"]){
+        Popstats[i,"td_red"] <- td_red[e,"TajimaD"]
+        Popstats[i,"snps2"] <- td_red[e,"N_SNPS"]
+        Popstats[i,"what"] <- "start_missing"
+      }
+    }
+  }
+}
+
+
+## now for blue
+td_blue$bin_end <- td_blue$BIN_START + 10000
+# add values to region overlapping genes in popstats
+# now a bit more complicated because there could be more than one and not just start should be in it
+# do start and end and then take all pieces in between later
+matchmat_start <- sapply(Popstats$start, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+matchmat_end <- sapply(Popstats$end, function(x) x > td_blue$BIN_START & x < td_blue$bin_end) # rows from td, columns from popstats
+# match the row number to the column, or, for each column get the position of the TRUE(s)
+# and it only counts if it's the same scaffold
+matches_start <- apply(matchmat_start,2, which)
+matches_end <- apply(matchmat_end,2, which)
+Popstats$td_blue <- NA
+Popstats$what <- NA
+Popstats$start_cands <- 0
+for (i in 1:nrow(Popstats)){
+  candidates_start <- matches_start[[i]]
+  candidates_end <- matches_end[[i]]
+  for (j in candidates_start){
+    if (td_blue[j,"CHROM"] == Popstats[i,"scaffold"]){ # only for start on same scaffold (I expect there to be only one right candidate always)
+      # find matching end position
+      end <- candidates_end[which((j <= candidates_end & candidates_end < j + 40) | j == candidates_end)] # I expect end to be close, max 350000/10000 = 35 away, or the same
+      if (length(end) > 1){
+        if (td_blue[end[1],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[1]
+        } else if (td_blue[end[2],"CHROM"] == Popstats[i,"scaffold"]){
+          end <- end[2]
+        }else{
+          Popstats[i,"what"] <- "weird_end"
+          next # jump to the next i (not j) (but it never happened anyway)
+        }
+      } # if there are multiple candidates, take which is on the same chromosome
+      if (is.numeric(end) & length(end) > 0){
+        Popstats[i,"td_blue"] <- mean(td_blue[j:end,"TajimaD"]) # take the average of all rows in between
+        Popstats[i,"what"] <- paste0("end_exists_",end)
+      }else{ # else just take start
+        Popstats[i,"td_blue"] <- td_blue[j,"TajimaD"]
+        Popstats[i,"what"] <- "end_missing"
+      }
+      # record what happened
+      Popstats[i,"start_cands"] <- Popstats[i,"start_cands"] +1
+    }
+  } # it could also happen for small chromosome that only the end is in a chunk
+  if (is.na(Popstats[i,"td_blue"])){ # so in that case (when start is missing) check for ends and take them
+    for (e in candidates_end){
+      if (td_blue[e,"CHROM"] == Popstats[i,"scaffold"]){
+        Popstats[i,"td_blue"] <- td_blue[e,"TajimaD"]
+        Popstats[i,"what"] <- "start_missing"
+      }
+    }
+  }
+}
+
+```
+
+
+```{r tajima d 2 above 10 cats}
+
+Popstats_b10 <- droplevels(filter(Popstats, ! cat4 %in% c("bothup","coldup","hotupcolddown")))
+
+## red
+# are they significantly different?
+test <- kruskal.test(td_red ~ cat4, Popstats_b10)
+test 
+ggplot(Popstats_b10, aes(x = category1, y = td_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_hline(yintercept = 0)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)+
+  theme(legend.title = element_blank())
+
+dunnTest(td_red ~ cat4, Popstats_b10, method = "bh") #bothdown - hotdowncoldup, colddown - hotdowncoldup and hotdown - hotdowncoldup are different
+
+# maybe the ones with very few snps are not really reliable, let's filter out the ones with < 10 snps
+summary(Popstats_b10$snps2)
+Popstats_b10 <- filter(Popstats_b10, snps2 > 10)
+test <- kruskal.test(td_red ~ cat4, Popstats_b10)
+test # there are differences!
+ggplot(Popstats_b10, aes(x = category1, y = td_red,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_hline(yintercept = 0)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)+
+  theme(legend.title = element_blank())
+dunnTest(td_red ~ cat4, Popstats_b10, method = "bh") # now colddown - hotdowncoldup and hotdowncoldup - hotup are different
+
+
+## blue
+# are they significantly different?
+test <- kruskal.test(td_blue ~ cat4, Popstats_b10)
+test # no
+ggplot(Popstats_b10, aes(x = category1, y = td_blue,colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  geom_hline(yintercept = 0)+
+  xlab("")+labs(subtitle = paste0("Kruskal p-value: ",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)+
+  theme(legend.title = element_blank())
+
+```
+
+This other method did not really change the results much. In red colddown - hotdowncoldup and hotdowncoldup - hotup are still different, and Tajima's D in hotup is still low. Also still no differences between categories in blue.  
+
+Is Tajima's D actually correlated in any way with $\pi$ or $d_{xy}$ like we assumed?  
+
+```{r relationship TD and pi dxy, fig.show='hold',fig.height=3,fig.width=3.5}
+plot(Popstats$td_red,Popstats$pi_red)
+plot(Popstats$td_blue,Popstats$pi_blue, ylim = c(0,0.006))
+
+plot(Popstats$td_blue,Popstats$dxy_blue_red, ylim = c(0,0.006))
+
+test <- cor.test(Popstats$pi_blue, Popstats$td_blue, method = "spearman")
+test
+library(visreg)
+visreg(test)
+```
+
+In blue there's a little bit positive correlation but not in red.  
+
+## Top functional genes
+
+Let's further categorise genes into functions (kind of) and see if they have different $F_{ST}$. I went through the GO and KEGG analyses again and checked which genes are associated with the functional terms, because not all are, so now I have some genes that have some functional significance and are upregulated in heat, or down in both heat and cold, etc. So now we can mark the genes with functional significance especially in our comparison.   
+
+```{r mark gene fct}
+ggplot(filter(Popstats, category1 == "distinct"), aes(x = category2, y = Fst_blue_red,colour = category3))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+
+ggplot(Popstats, aes(x = category1, y = Fst_blue_red,colour = category3))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
+  theme_pubr(base_size = 10)
+```
+
+The hotupcolddown and hotup genes all have quite low $F_{ST}$, other than that there does not seem to be anything special.
+
+
+
+# Just promoters
+
+Since we are looking at target genes based on their expression, maybe it's not those genes themselves at all that are different between subspecies, but their promoter regions. So here I am looking at the 1000 bp immediately in front of the start codon of each gene.  
+
+```{r load promoter data, include=FALSE}
+# fst and other pop stats
+setwd("/Users/Lea/Library/CloudStorage/OneDrive-Aarhusuniversitet/LeaH/Subspecies/")
+PopstatsPromo <- read.csv("data/FstTargeted/monobiallelic.1000bp_justpromoter.regionsOI_fst.csv")
+regInfoPromo <- read.table("data/FstTargeted/regionsOI_1000bp_justpromoter.with_names.bed", col.names = c("scaffold","start","end","geneID","startcodons"))
+snp_countsPromo <- read.table("data/FstTargeted/monobiallelic.1000bp_justpromoter.snp_counts.bed", col.names = c("scaffold","start","end","snps"))
+# add gene ids and snp counts to the pop stats df
+PopstatsPromo <- full_join(PopstatsPromo,regInfoPromo, by = join_by(scaffold,start,end))
+PopstatsPromo <- full_join(PopstatsPromo,snp_countsPromo, by = join_by(scaffold,start,end))
+
+# add gene category to Popstats
+PopstatsPromo <- full_join(PopstatsPromo,dplyr::select(gene_cats, !colour), by = join_by(geneID == gene))
+summary(PopstatsPromo)
+
+# check if they're all just 1000 bp
+plot(PopstatsPromo$end - PopstatsPromo$start) # yep
+# how many sites & snps does that translate too?
+plot(PopstatsPromo$sites,PopstatsPromo$snps)
+
+# check which genes go over scaffold end
+PopstatsPromo <- left_join(PopstatsPromo,scaff_ends)
+which(PopstatsPromo$end > PopstatsPromo$scaff_end) # the same ones except one less
+```
+
+Since they are all just 1000 bp, of course some of them have very few SNPs. I will check here how many SNPs each gene category has, because that is important for differentiation too perhaps, and then filter regions with just 1 or 0 SNPs out as before. 
+
+```{r snp nr promoters}
+ggplot(PopstatsPromo, aes(x = category1, y = snps, colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.5)+
+  theme_pubr(base_size = 10)
+# does it influence Fst?
+plot(PopstatsPromo$sites, PopstatsPromo$Fst_blue_red)
+
+```
+
+Looks like number of SNPs is quite even across. So let's remove the very low ones for more reliable $F_{st}$ estimates.  
+
+```{r filter promoters}
+# remove NA's and age interaction genes
+PopstatsPromo <- filter(PopstatsPromo, !is.na(Fst_blue_red) &
+                     snps > 1) # set minimum nr of snps
+
+```
+
+### Shared vs distinct
+
+```{r shared v distinct promo}
+wiltest <- wilcox.test(filter(PopstatsPromo, category1 == "shared")$Fst_blue_red, filter(PopstatsPromo, category1 == "distinct")$Fst_blue_red, paired = FALSE) # p > 0.05 
+ggplot(PopstatsPromo, aes(x = category1, y = Fst_blue_red, colour = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.5)+
+  ggtitle(paste("Wilcox pval:"),round(wiltest$p.value,4))+
+  theme_pubr(base_size = 10)
+
+test <- kruskal.test(Fst_blue_red ~ cat4, PopstatsPromo) # p > 0.05 
+ggplot(PopstatsPromo, aes(x = category1, y = Fst_blue_red, colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge())+
+  ggtitle(paste("kruskal pval:"),round(test$p.value,4))+
+  theme_pubr(base_size = 10)
+
+```
+
+### Hot vs cold
+
+```{r hot v cold promo,fig.show='hold', fig.width=3, fig.height=3.5}
+ggplot(filter(PopstatsPromo, category1 == "distinct"), aes(x = category2, y = Fst_blue_red, colour = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  theme_pubr(base_size = 10)
+wilcox.test(filter(PopstatsPromo, category2 == "hot")$Fst_blue_red, filter(PopstatsPromo, category2 == "cold")$Fst_blue_red, paired = FALSE) # p > 0.05 
+
+ggplot(filter(PopstatsPromo, category1 == "distinct"), aes(x = category2, y = Fst_blue_red, colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge())+
+  theme_pubr(base_size = 10)
+```
+
+There does not seem to be any difference in $F_{st}$ in the promoters, either. But maybe the pattern with hotup having higher pi and $d_{xy}$ comes from promoters?  
+
+```{r more promoter charact}
+test <- kruskal.test(dxy_blue_red ~ category2, PopstatsPromo)
+ggplot(PopstatsPromo, aes(x = category2, y = dxy_blue_red, colour = snps))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter()+
+  ggtitle(paste("kruskal pval:",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+test <- kruskal.test(pi_blue ~ cat4, PopstatsPromo)
+ggplot(PopstatsPromo, aes(x = category2, y = pi_blue, colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge())+
+  ggtitle(paste("kruskal pval:",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+
+test <- kruskal.test(dxy_blue_red ~ cat4, PopstatsPromo)
+ggplot(PopstatsPromo, aes(x = category2, y = dxy_blue_red, colour = cat4))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge())+
+  ggtitle(paste("kruskal pval:",round(test$p.value,4)))+
+  theme_pubr(base_size = 10)
+```
+
+There seems to be the same trend in the promoters with hotup.  
+
+# Different subspecies comparisons 
+
+Even though there are probably biases in $F_{ST}$ in black subspecies comparisons because they are a mix with blue, I am still curious if there are differences.  
+
+```{r subspecies comp}
+Popstats_long <- pivot_longer(Popstats, cols = c(Fst_blue_red, Fst_black_blue, Fst_black_red), names_to = "comparison", values_to = "Fst")
+ggplot(Popstats_long, aes(x = category1, y = Fst, colour = comparison))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8, position = position_jitterdodge())+
+  theme_pubr(base_size = 10)
+ggplot(filter(Popstats_long, category2!= "shared"), aes(x = category2, y = Fst, colour = comparison))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(alpha = 0.8, position = position_jitterdodge())+
+  theme_pubr(base_size = 10)
+
+```
+
+Genes of all categories are least differentiated in black and blue, then black and red, then blue and red, which matches expectations.  
+
+
+
