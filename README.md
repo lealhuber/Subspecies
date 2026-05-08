@@ -14,3 +14,5 @@ This folder contains further filtering steps that were only done for population 
 This folder contains some overall population differentiation analyses that were not further used or analysed.
 ## Targeted Fst
 This folder contains the targeted population differentiation analysis using scripts by Simon Martin (https://github.com/simonhmartin/genomics_general). The option --windCoords with the regions of interest containing the genes from the gene expression analysis was used. We included 250 bp upstream of the start codons to hopefully include promoter regions, but we also tested other promotor sizes.
+## R_scripts
+This folder contains scripts for checking variant filtering and scripts for further analysis and plotting of population structure and differentiation results.  
