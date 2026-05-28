@@ -81,8 +81,13 @@ which(Popstats$end > Popstats$scaff_end) # 4 of those have no data because they 
  
 ```{r filter}
 # remove NA's and age interaction genes
+Popstats_prefilter <- Popstats
 Popstats <- filter(Popstats, !is.na(Fst_blue_red) &
                      snps > 10) # set minimum nr of snps
+# how many does this remove?
+nrow(Popstats_prefilter) - nrow(Popstats)
+# which?
+fewsnps <- Popstats_prefilter[which(!(Popstats_prefilter$geneID %in% Popstats$geneID)),"geneID"]
 
 ```
 
@@ -681,23 +686,19 @@ Here we see that indeed nucleotide diversity in hotup is high in all populations
 ## dxy
 # reorder cat4 so it order is same as down
 Popstats_b10$cat4 <- factor(Popstats_b10$cat4, levels = c("colddown","hotdown","hotup","bothdown","hotdowncoldup"))
-# maybe filter snps > 10
+# filter snps > 10
 Popstats_b10 <- filter(Popstats_b10, snps > 10)
 test <- kruskal.test(dxy_blue_red ~ cat4, Popstats_b10)
 dunnTest(dxy_blue_red ~ cat4, Popstats_b10, method = "bh") # bothdown - hotup, colddown - hotup & hotdown - hotup are different
-ggplot(Popstats_b10, aes(x = category1, y = dxy_blue_red,colour = cat4))+
+# to make plot easier to read, just do distinct genes as those are the interesting comparisons
+ggplot(filter(Popstats_b10, category1 == "distinct"), aes(x = cat4, y = dxy_blue_red))+
   geom_boxplot(outliers = FALSE)+
   geom_jitter(position = position_jitterdodge(), alpha = 0.7)+
-  geom_signif(annotations = "**", y_position = 0.0136, xmin = 1.25, xmax = 1.8, tip_length = 0.005, textsize = 5, colour = "black")+ # bothdown - hotup
-  geom_signif(annotations = "*", y_position = 0.0139, xmin = 0.7, xmax = 1.22, tip_length = 0.005, textsize = 5, colour = "black")+ # colddown - hotup
-  geom_signif(annotations = "***", y_position = 0.0136, xmin = 1, xmax = 1.22, tip_length = 0.005, textsize = 5, colour = "black")+ #  hotdown - hotup
-  geom_signif(annotations = "*", y_position = 0.0139, xmin = 1.25, xmax = 2.1, tip_length = 0.005, textsize = 5, colour = "black")+ #  hotdowncoldup - hotup
+  geom_signif(annotations = "*", y_position = 0.014, xmin = 1, xmax = 3, tip_length = 0.005, textsize = 6, colour = "black")+ # colddown - hotup
+  geom_signif(annotations = "***", y_position = 0.0136, xmin = 2, xmax = 3, tip_length = 0.005, textsize = 6, colour = "black")+ #  hotdown - hotup
   geom_hline(yintercept = 0.013, linetype = 3, alpha = 0.3)+
   scale_y_break(c(0.006, 0.013))+
   scale_y_continuous(limits = c(0, 0.0143))+
-  scale_x_discrete(labels = c("Distinct","Shared"))+
-  scale_colour_manual(values = c( "#ff0000", "#f8c75d", "#f98400", "#00a08a", "#5bbcd6" ),
-                      labels = c(expression(cold[down]),expression(hot[down]),expression(hot[up]),expression(cold[down]+hot[down]), expression(cold[up]+hot[down])))+
   xlab("Response to heat or cold")+ylab("Absolute differentiation (Dxy)")+
   theme_pubr(base_size = 17)+
   theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
@@ -714,25 +715,58 @@ testR <- kruskal.test(pi_red ~ cat4, Popstats_b10)
 testB <- kruskal.test(pi_blue ~ cat4, Popstats_b10)
 dunnTest(pi_red ~ cat4, Popstats_b10, method = "bh")
 dunnTest(pi_blue ~ cat4, Popstats_b10, method = "bh")
-ggplot(filter(Popstats_b10_pilong, pop != "black"), aes(x = category1, y = pi, colour = cat4, shape = pop))+
+# version in same plot
+ggplot(filter(Popstats_b10_pilong, pop != "black" & category1 == "distinct"), aes(x = cat4, y = pi, colour = pop))+
   geom_boxplot(outliers = FALSE)+
   geom_jitter(position = position_jitterdodge(), alpha = 0.7, size = 1.9)+
-  geom_signif(annotations = "**", y_position = 0.0143, xmin = 1.28, xmax = 1.8, tip_length = 0.03,textsize = 5, colour = "black")+ # bothdown - hotup red
-  geom_signif(annotations = "*", y_position = 0.0143, xmin = 0.75, xmax = 1.24, tip_length = 0.03, textsize = 5, colour = "black")+ # colddown - hotup red
-  geom_signif(annotations = "***", y_position = 0.0135, xmin = 1, xmax = 1.24, tip_length = 0.03, textsize = 5, colour = "black")+ #  hotdown - hotup red
+  geom_signif(annotations = "*", y_position = 0.0143, xmin = 0.8, xmax = 2.8, tip_length = 0.03, textsize = 6, colour = "blue")+ # colddown - hotup blue
+  geom_signif(annotations = "*", y_position = 0.0137, xmin = 1.2, xmax = 3.2, tip_length = 0.03, textsize = 6, colour = "red")+ # colddown - hotup red
+  geom_signif(annotations = "***", y_position = 0.0131, xmin = 1.8, xmax = 2.8, tip_length = 0.03, textsize = 6, colour = "blue")+ #  hotdown - hotup blue
+  geom_signif(annotations = "***", y_position = 0.0126, xmin = 2.2, xmax = 3.2, tip_length = 0.03, textsize = 6, colour = "red")+ #  hotdown - hotup red
   geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
   scale_y_break(c(0.0055, 0.012), scales = 0.2, space = 0.2)+
   scale_y_continuous(limits = c(0, 0.015))+
-  scale_x_discrete(labels = c("Distinct","Shared"))+
-  scale_colour_manual(values = c( "#ff0000", "#f8c75d", "#f98400", "#00a08a", "#5bbcd6" ),
-                      labels = c(expression(cold[down]),expression(hot[down]),expression(hot[up]),expression(cold[down]+hot[down]), expression(cold[up]+hot[down])))+
-  scale_shape_discrete(labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
-  guides(shape = guide_legend(position = "left", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))))+
+  scale_colour_manual(values = c( "blue", "red"), labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
+  guides(colour = guide_legend(position = "left", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))))+
   xlab("Response to heat or cold")+ylab("Nucleotide diversity (pi)")+
-  theme_pubr(base_size = 17)+
+  theme_pubr(base_size = 16)+
   theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
   axis.ticks.y.right = element_blank(),
   axis.line.y.right  = element_blank())
+
+# version pops separated: two plots
+ggplot(filter(Popstats_b10_pilong, category1 == "distinct" & pop == "blue"), aes(x = cat4, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7, size = 1.9)+
+  geom_signif(annotations = "*", y_position = 0.014, xmin = 1, xmax = 3, tip_length = 0.03, textsize = 6, colour = "black")+ # colddown - hotup 
+  geom_signif(annotations = "***", y_position = 0.013, xmin = 2, xmax = 3, tip_length = 0.03, textsize = 6, colour = "black")+ #  hotdown - hotup 
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.0055, 0.012), scales = 0.2, space = 0.2)+
+  scale_y_continuous(limits = c(0, 0.015))+
+  scale_colour_manual(values = c( "blue"), labels = c(expression(italic("S.c. australis"))))+
+  guides(colour = guide_legend(position = "top", override.aes = list(linetype = c(0), size = c(2.5))))+
+  xlab("Response to heat or cold")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 16)+
+  theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank())
+
+ggplot(filter(Popstats_b10_pilong, category1 == "distinct" & pop == "red"), aes(x = cat4, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(position = position_jitterdodge(), alpha = 0.7, size = 1.9)+
+  geom_signif(annotations = "*", y_position = 0.014, xmin = 1, xmax = 3, tip_length = 0.03, textsize = 6, colour = "black")+ # colddown - hotup 
+  geom_signif(annotations = "***", y_position = 0.013, xmin = 2, xmax = 3, tip_length = 0.03, textsize = 6, colour = "black")+ #  hotdown - hotup 
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.0055, 0.012), scales = 0.2, space = 0.2)+
+  scale_y_continuous(limits = c(0, 0.015))+
+  scale_colour_manual(values = c( "red"), labels = c(expression(italic("S.c. massaicus"))))+
+  guides(colour = guide_legend(position = "top", override.aes = list(linetype = c(0), size = c(2.5))))+
+  xlab("Response to heat or cold")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 16)+
+  theme(legend.title = element_blank(),axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank())
+
 
 
 
@@ -1333,6 +1367,3 @@ ggplot(filter(Popstats_long, category2!= "shared"), aes(x = category2, y = Fst, 
 ```
 
 Genes of all categories are least differentiated in black and blue, then black and red, then blue and red, which matches expectations.  
-
-
-
