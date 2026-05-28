@@ -47,8 +47,8 @@ which(Popstats$end > Popstats$scaff_end) # 4 of those have no data because they 
 ```{r filter}
 # remove NA's and age interaction genes
 summary(Popstats$snps)
-Popstats <- filter(Popstats, !is.na(Fst_blue_red) &
-                     snps > 1) # set minimum nr of snps
+Popstats <- filter(Popstats, !is.na(dxy_blue_red) &
+                     snps > 10) # set minimum nr of snps
 # how many each category?
 table(Popstats$cvb)
 table(Popstats$hvb)
@@ -242,6 +242,7 @@ No there is no overlap.
 ```{r plots for paper, include=FALSE}
 
 # maybe filter out snps < 10
+PopstatsHot_prefilter <- PopstatsHot
 PopstatsHot <- filter(PopstatsHot, snps > 10)
 test_dxy <- kruskal.test(dxy_blue_red ~ hvb, PopstatsHot) # p > 0.05 -> no not different
 dunnTest(dxy_blue_red ~ hvb, PopstatsHot, method = "bh") 
@@ -263,6 +264,21 @@ ggplot(PopstatsHot, aes(x = hvb, y = dxy_blue_red, colour = hvb))+
   scale_colour_manual(values = c( "#780852", "#780852", "#780852", "#780852", "#780852"))+
   scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
   guides(colour = guide_legend(nrow = 2))+
+  xlab("Thermal response across age")+ylab("Absolute differentiation (Dxy)")+
+  theme_pubr(base_size = 17, legend = "none")+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1))
+
+## new less cluttered plot without just 1w and just 8w
+ggplot(filter(PopstatsHot, !(hvb %in% c("just_1week","just_8week"))), aes(x = hvb, y = dxy_blue_red))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.7, alpha = 0.7)+
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 1, xmax = 3, tip_length = 0.01, textsize = 5, colour = "black")+ #  opposite_direction - same_slope
+  scale_y_break(c(0.007, 0.013), space = 0.3)+
+  geom_hline(yintercept = 0.013, linetype = 3, alpha = 0.3)+
+  scale_y_continuous(limits = c(0, 0.0144))+
+  scale_x_discrete(labels = c("Opposite direction", "Same direction", "Not age modulated"))+
   xlab("Thermal response across age")+ylab("Absolute differentiation (Dxy)")+
   theme_pubr(base_size = 17, legend = "none")+
   theme(axis.text.y.right = element_blank(),
@@ -296,6 +312,77 @@ ggplot(filter(PopstatsHot_pilong, pop != "black"), aes(x = hvb, y = pi, shape = 
   scale_shape_discrete(labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
   guides(shape = guide_legend(position = "top", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))),
          colour = "none")+
+  xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+
+## Reduced plot both pops
+ggplot(filter(PopstatsHot_pilong, pop != "black" & !(hvb %in% c("just_1week","just_8week"))), aes(x = hvb, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.9, alpha = 0.7, position = position_jitterdodge())+
+  geom_signif(annotations = "*", y_position = 0.013, xmin = 0.85, xmax = 2.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # opposite_direction - same_slope blue
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 1.2, xmax = 3.2, tip_length = 0.01, textsize = 5, colour = "red")+ # opposite_direction - same_slope red
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.008, 0.012), space = 0.3)+
+  scale_y_continuous(limits = c(0, 0.014))+
+  scale_colour_manual(values = c( "blue", "red"),labels = c(expression(italic("S.c. australis")), expression(italic("S.c. massaicus"))))+
+  scale_x_discrete(labels = c("Opposite direction", "Same direction", "Not age modulated"))+
+  guides(colour = guide_legend(position = "top", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))))+
+  xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+
+## ages separate
+ggplot(filter(PopstatsHot_pilong, pop == "blue"), aes(x = hvb, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.9, alpha = 0.7, position = position_jitterdodge())+
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 0.8, xmax = 1.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_1week - just_8week blue
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 1.85, xmax = 2.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_8week - opposite_direction blue
+  geom_signif(annotations = "*", y_position = 0.013, xmin = 1.85, xmax = 3.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_8week - same_direction blue
+  geom_signif(annotations = "*", y_position = 0.0135, xmin = 0.8, xmax = 4.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # just_1week - same_slope blue
+  geom_signif(annotations = "*", y_position = 0.0125, xmin = 2.85, xmax = 4.75, tip_length = 0.01, textsize = 5, colour = "blue")+ # opposite_direction - same_slope blue
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.008, 0.012), space = 0.3)+
+  scale_y_continuous(limits = c(0, 0.014))+
+  scale_colour_manual(values = c("blue"),labels = c(expression(italic("S.c. australis"))))+
+  scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
+  #guides(colour = guide_legend(position = "top", override.aes = list(linetype = c(0,0), size = c(2.5,2.5))))+
+  xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+
+ggplot(filter(PopstatsHot_pilong, pop == "red"), aes(x = hvb, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.9, alpha = 0.7, position = position_jitterdodge())+
+  geom_signif(annotations = "*", y_position = 0.0136, xmin = 3, xmax = 5, tip_length = 0.01, textsize = 5, colour = "red")+ # opposite_direction - same_slope red
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.008, 0.012), space = 0.3)+
+  scale_y_continuous(limits = c(0, 0.014))+
+  scale_colour_manual(values = c("red"),labels = c(expression(italic("S.c. massaicus"))))+
+  scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
+  xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
+  theme_pubr(base_size = 17)+
+  theme(axis.text.y.right = element_blank(),
+  axis.ticks.y.right = element_blank(),
+  axis.line.y.right  = element_blank(),axis.text.x = element_text(angle = 20, hjust = 1), legend.title = element_blank())
+
+# facet sadly don't work
+ggplot(filter(PopstatsHot_pilong, pop != "black"), aes(x = hvb, y = pi, colour = pop))+
+  geom_boxplot(outliers = FALSE)+
+  geom_jitter(size = 1.9, alpha = 0.7, position = position_jitterdodge())+
+  facet_wrap(vars(pop), nrow = 2, strip.position = "right")+
+  geom_signif(annotations = "*", y_position = 0.0136, xmin = 3, xmax = 5, tip_length = 0.01, textsize = 5, colour = "red")+ # opposite_direction - same_slope red
+  geom_hline(yintercept = 0.012, linetype = 3, alpha = 0.3)+
+  scale_y_break(c(0.008, 0.012), space = 0.3)+
+  scale_y_continuous(limits = c(0, 0.014))+
+  scale_colour_manual(values = c("blue","red"))+
+  scale_x_discrete(labels = c("Only 1-week-old", "Only 8-week-old","Opposite direction", "Same direction", "Not age modulated"))+
   xlab("Thermal response across age")+ylab("Nucleotide diversity (pi)")+
   theme_pubr(base_size = 17)+
   theme(axis.text.y.right = element_blank(),
@@ -712,6 +799,3 @@ ggplot(stats_oppsame, aes(x = cat4, y = dxy_blue_red))+
   theme_pubr(base_size = 10)
 
 ```
-
-
-
